@@ -9,6 +9,11 @@ htmlcov/
 venv/
 ENV/
 env/
+build/
+dist/
+.eggs/
+*.egg-info/
+
 
 # ── Project Specific ────────────────────────────────────────────────────────
 # Generated assets
