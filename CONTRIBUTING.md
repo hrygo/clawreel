@@ -10,7 +10,7 @@ ClawReel is an Agent-Driven (HITL) pipeline optimized for automated short video 
    ```bash
    pip install -e .
    ```
-3. Copy `.env.example` to `.env` and fill in your keys.
+3. Set environment variable `MINIMAX_API_KEY` for API access.
 4. Run `clawreel --help` to ensure your setup works.
 
 ## Pull Request Guidelines

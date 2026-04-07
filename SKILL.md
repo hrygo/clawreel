@@ -31,7 +31,7 @@ git clone https://github.com/hrygo/clawreel && cd clawreel && ./install.sh
 |------|---------------|
 | CLI 可用 | `clawreel --help` |
 | Skill 已部署 | `ls ~/.claude/skills/clawreel/` |
-| API Key | `cp .env.example .env` → 编辑填入 `MINIMAX_API_KEY` |
+| API Key | 设置环境变量 `MINIMAX_API_KEY`（MiniMax TTS/视频/图片/音乐需要） |
 
 ---
 
@@ -300,7 +300,7 @@ clawreel assets \
 |----------|------------------------|
 | T2V Video (6s) | ¥0.5 - ¥1.0 |
 | Image | ¥0.1 - ¥0.2 |
-| Music | ¥0.3 - ¥0.5 |
+| Music | ¥0.3 - ¥0.5 | Token Plan 不支持 music-2.5+，使用 music-2.5 |
 | TTS (MiniMax) | ¥0.1 / 100 chars |
 | TTS (Edge) | Free |
 
@@ -399,6 +399,8 @@ clawreel assets --hook-prompt "..." --music-prompt "..." --topic "topic" --skip-
 ## Configuration File (config.yaml)
 
 > ⚠️ 以下为实际生效的模型名称，与 MiniMax 官方 API 对应。
+>
+> **音乐模型限制**：Token Plan 不支持 `music-2.5+`，系统已自动降级为 `music-2.5`（使用 `lyrics` 参数而非 `is_instrumental`）。如需使用新版音乐模型，请改用标准 API（`MINIMAX_API_HOST=https://api.minimaxi.chat`）。
 
 ```yaml
 minimax:
@@ -408,7 +410,7 @@ minimax:
     i2v: "MiniMax-Hailuo-2.3-Fast" # 视频 I2V 加速版
     image: "image-01"
     tts: "speech-2.8-hd"
-    music: "music-2.5"
+    music: "music-2.5"              # Token Plan 不支持 music-2.5+，已降级
 
 tts:
   active_provider: "edge"  # edge 免费，minimax 付费高品质

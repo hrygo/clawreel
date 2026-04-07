@@ -88,9 +88,8 @@ git clone https://github.com/hrygo/clawreel && cd clawreel
 ### 初始化配置
 
 ```bash
-# 复制环境变量模板并填入 API Key
-cp .env.example .env
-# 编辑 .env，填入 MINIMAX_API_KEY
+# 设置 MiniMax API Key（视频/图片/音乐/TTS 需要）
+export MINIMAX_API_KEY="your_key_here"
 ```
 
 ### 开始创作

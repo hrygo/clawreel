@@ -92,10 +92,11 @@ do_install() {
     fi
 
     # 3. Env setup hint
-    echo ""
-    info "⚙️  环境配置提示:"
-    if [[ ! -f "${repo_dir}/.env" && -f "${repo_dir}/.env.example" ]]; then
-        warn "检测到 .env.example，请创建 .env 并填入 MINIMAX_API_KEY"
+    if [[ -z "${MINIMAX_API_KEY}" ]]; then
+        echo ""
+        info "⚙️  环境配置提示:"
+        warn "请设置环境变量 MINIMAX_API_KEY（视频/图片/音乐/TTS 需要）"
+        warn "方法：export MINIMAX_API_KEY=\"your_key_here\""
     fi
 }
 
@@ -117,7 +118,7 @@ main() {
     info "✅ 安装完成!"
     echo ""
     info "下一步："
-    echo -e "  1. 填写 API Key:  ${YELLOW}cp .env.example .env${NC}  → 编辑 .env"
+    echo -e "  1. 设置 API Key:  ${YELLOW}export MINIMAX_API_KEY=\"your_key\"${NC}"
     echo -e "  2. 验证 CLI:      ${YELLOW}clawreel --help${NC}"
     echo -e "  3. 开始创作:      ${YELLOW}clawreel check --topic \"AI未来趋势\"${NC}"
     echo ""
