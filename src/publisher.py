@@ -69,6 +69,13 @@ async def publish_to_douyin(
     )
 
 
+# ── 平台发布策略注册表 ────────────────────────────────────────────────────────
+_PUBLISHERS = {
+    "xiaohongshu": publish_to_xiaohongshu,
+    "douyin": publish_to_douyin,
+}
+
+
 async def publish(
     video_path: Path,
     title: str,
@@ -87,7 +94,7 @@ async def publish(
         各平台发布结果列表
     """
     if platforms is None:
-        platforms = ["xiaohongshu", "douyin"]
+        platforms = list(_PUBLISHERS.keys())
     if cookies is None:
         cookies = {}
 
@@ -97,19 +104,13 @@ async def publish(
     description = f"{title}\n\n内容由AI生成"
 
     for platform in platforms:
-        if platform == "xiaohongshu":
-            result = await publish_to_xiaohongshu(
+        publisher_func = _PUBLISHERS.get(platform)
+        if publisher_func:
+            result = await publisher_func(
                 video_path=video_path,
                 title=title,
                 description=description,
-                cookies=cookies.get("xiaohongshu", ""),
-            )
-        elif platform == "douyin":
-            result = await publish_to_douyin(
-                video_path=video_path,
-                title=title,
-                description=description,
-                cookies=cookies.get("douyin", ""),
+                cookies=cookies.get(platform, ""),
             )
         else:
             result = PublishResult(

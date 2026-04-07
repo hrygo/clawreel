@@ -7,7 +7,7 @@ import asyncio
 import logging
 from pathlib import Path
 
-from .api_client import api_post, api_get
+from .api_client import api_post, poll_async_task
 from .config import ASSETS_DIR, AUDIO_BIT_RATE, AUDIO_SAMPLE_RATE, MODEL_MUSIC
 
 logger = logging.getLogger(__name__)
@@ -47,52 +47,39 @@ async def generate_music(
         raise RuntimeError(f"Music 提交无 task_id: {result}")
     logger.info("🎵 音乐任务已提交，task_id: %s", task_id)
 
-    return await _poll_music(task_id, output_path)
-
-
-async def _poll_music(task_id: str, output_path: Path) -> Path:
-    """轮询音乐任务直到完成，下载并返回本地路径。"""
-    elapsed = 0
-    while elapsed < _MAX_WAIT_SEC:
-        await asyncio.sleep(_POLL_INTERVAL)
-        elapsed += _POLL_INTERVAL
-
-        result = await api_get(
-            endpoint="/music_generation/query",
-            params={"task_id": task_id},
-        )
-
-        status = result.get("status", "")
+    async def _extractor(res, session, out_path):
+        status = res.get("status", "")
         logger.debug("音乐任务状态: %s", status)
 
         if status == "Success":
             # 优先尝试 audio_url 下载
             music_url = (
-                result.get("data", {}).get("audio_url")
-                or result.get("audio_url")
+                res.get("data", {}).get("audio_url")
+                or res.get("audio_url")
             )
-            if not music_url:
-                # 降级：尝试 hex
-                audio_hex = result.get("data", {}).get("audio") or result.get("audio")
-                if audio_hex:
-                    audio_bytes = bytes.fromhex(audio_hex)
-                else:
-                    raise RuntimeError(f"音乐完成但无 audio_url: {result}")
-            else:
-                from .api_client import download_file
-                music_tmp = output_path.parent / f"_music_{task_id}.mp3"
-                await download_file(music_url, music_tmp)
-                audio_bytes = music_tmp.read_bytes()
-                music_tmp.unlink(missing_ok=True)
+            if music_url:
+                logger.info("✅ 音乐生成完成: %s", out_path)
+                return True, music_url, None
 
-            output_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(output_path, "wb") as f:
-                f.write(audio_bytes)
-
-            logger.info("✅ 音乐生成完成: %s", output_path)
-            return output_path
+            # 降级：尝试 hex
+            audio_hex = res.get("data", {}).get("audio") or res.get("audio")
+            if audio_hex:
+                audio_bytes = bytes.fromhex(audio_hex)
+                logger.info("✅ 音乐生成完成: %s", out_path)
+                return True, audio_bytes, None
+                
+            return False, None, f"音乐完成但无 audio_url: {res}"
 
         elif status == "Fail":
-            raise RuntimeError(f"音乐生成失败: {result}")
+            return False, None, f"音乐生成失败: {res}"
 
-    raise TimeoutError(f"音乐生成超时（{_MAX_WAIT_SEC}秒）: {task_id}")
+        return False, None, None
+
+    return await poll_async_task(
+        task_id=task_id,
+        query_endpoint="/music_generation/query",
+        output_path=output_path,
+        result_extractor=_extractor,
+        max_wait_sec=_MAX_WAIT_SEC,
+        poll_interval=_POLL_INTERVAL
+    )

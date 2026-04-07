@@ -7,7 +7,7 @@ import json
 import logging
 from typing import TypedDict
 
-from .api_client import get_session
+from .api_client import api_post
 from .config import MINIMAX_API_KEY
 
 logger = logging.getLogger(__name__)
@@ -59,12 +59,7 @@ async def _call_m2n7(topic: str) -> str:
         ],
     }
 
-    async with get_session() as session:
-        async with session.post(url, json=payload, headers=headers) as resp:
-            if resp.status != 200:
-                text = await resp.text()
-                raise RuntimeError(f"M2.7 API 错误 {resp.status}: {text}")
-            result = await resp.json()
+    result = await api_post(url=url, headers=headers, payload=payload)
 
     # Anthropic API 返回格式：result.content[0].text
     content = result.get("content", [])
@@ -79,9 +74,12 @@ async def _parse_script(topic: str) -> ScriptData:
     """调用 API 并解析 JSON 脚本."""
     raw = await _call_m2n7(topic)
     text = raw.strip()
-    if text.startswith("```"):
-        lines = text.splitlines()
-        text = "\n".join(lines[1:-1])
+    start_idx = text.find('{')
+    end_idx = text.rfind('}')
+    
+    if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
+        text = text[start_idx:end_idx + 1]
+        
     data = json.loads(text)
     for field in ("title", "script", "hooks", "cta"):
         if field not in data:
