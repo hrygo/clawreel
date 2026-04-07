@@ -3,14 +3,13 @@
 采样率使用 config.AUDIO_SAMPLE_RATE（44100 Hz）。
 """
 import logging
-import binascii
-import subprocess
 from pathlib import Path
 
 import edge_tts
 
 from .api_client import api_post
 from .config import ASSETS_DIR, AUDIO_SAMPLE_RATE, TTS_PROVIDER, TTS_VOICE
+from .utils import get_media_duration, save_hex_audio, check_base_resp
 
 logger = logging.getLogger(__name__)
 
@@ -31,9 +30,13 @@ async def generate_voice(
         provider = TTS_PROVIDER
 
     if provider == "edge":
-        return await _generate_edge_voice(text, output_path, voice_id or TTS_VOICE)
+        path = await _generate_edge_voice(text, output_path, voice_id or TTS_VOICE)
     else:
-        return await _generate_minimax_voice(text, output_path, voice_id or DEFAULT_MINIMAX_VOICE)
+        path = await _generate_minimax_voice(text, output_path, voice_id or DEFAULT_MINIMAX_VOICE)
+    
+    duration = get_media_duration(path)
+    logger.info("✅ TTS 生成完成: %s (%.1f 秒)", path, duration)
+    return path
 
 
 async def _generate_edge_voice(
@@ -46,8 +49,7 @@ async def _generate_edge_voice(
     
     communicate = edge_tts.Communicate(text, voice_id)
     await communicate.save(output_path)
-    
-    return _finalize_audio(output_path)
+    return output_path
 
 
 async def _generate_minimax_voice(
@@ -80,38 +82,10 @@ async def _generate_minimax_voice(
         },
     )
 
-    base_resp = result.get("base_resp", {})
-    if base_resp.get("status_code", 0) != 0:
-        raise RuntimeError(
-            f"MiniMax TTS API 错误 {base_resp.get('status_code')}: {base_resp.get('status_msg')}"
-        )
+    check_base_resp(result, context="MiniMax TTS API")
 
     audio_hex = result.get("data", {}).get("audio")
     if not audio_hex:
         raise RuntimeError(f"MiniMax TTS API 返回无 audio_hex: {result}")
 
-    audio_bytes = binascii.unhexlify(audio_hex)
-
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(output_path, "wb") as f:
-        f.write(audio_bytes)
-
-    return _finalize_audio(output_path)
-
-
-def _finalize_audio(output_path: Path) -> Path:
-    """测量时长并记录日志。"""
-    try:
-        probe = subprocess.run(
-            ["ffprobe", "-v", "error",
-             "-show_entries", "format=duration",
-             "-of", "default=noprint_wrappers=1:nokey=1",
-             str(output_path)],
-            capture_output=True, text=True, check=True,
-        )
-        duration_sec = float(probe.stdout.strip())
-    except (subprocess.CalledProcessError, FileNotFoundError, ValueError):
-        duration_sec = 0
-
-    logger.info("✅ TTS 生成完成: %s (%.1f 秒)", output_path, duration_sec)
-    return output_path
+    return save_hex_audio(audio_hex, output_path)

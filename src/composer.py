@@ -5,7 +5,7 @@
 输出: assets/composed.mp4
 """
 import logging
-import subprocess
+import math
 from pathlib import Path
 from typing import Sequence
 
@@ -17,25 +17,9 @@ from .config import (
     VIDEO_HEIGHT,
     VIDEO_WIDTH,
 )
+from .utils import run_ffmpeg, get_media_duration
 
 logger = logging.getLogger(__name__)
-
-
-def _run_ffmpeg_custom(cmd: list[str]) -> None:
-    """执行 FFmpeg 命令（本地封装，用于类型安全）。"""
-    run_ffmpeg(cmd)
-
-
-def _get_duration(path: Path) -> float:
-    """获取音/视频时长（秒）."""
-    cmd = [
-        "ffprobe", "-v", "error",
-        "-show_entries", "format=duration",
-        "-of", "default=noprint_wrappers=1:nokey=1",
-        str(path),
-    ]
-    result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-    return float(result.stdout.strip())
 
 
 async def compose(
@@ -72,11 +56,12 @@ async def compose(
     )
 
     # 如果音乐比 TTS 短，循环音乐
-    if music_duration < tts_duration and music_duration > 0:
+    if 0 < music_duration < tts_duration:
+        loop_count = math.ceil(tts_duration / music_duration)
         extended_music = ASSETS_DIR / "music_extended.mp3"
-        _run_ffmpeg([
+        run_ffmpeg([
             "ffmpeg", "-y",
-            "-stream_loop", str(loop_count),
+            "-stream_loop", str(loop_count - 1),
             "-i", str(music_path),
             "-t", str(tts_duration),
             "-c", "copy",
@@ -97,7 +82,7 @@ async def compose(
     with open(concat_list, "w") as f:
         for i, img_path in enumerate(image_paths):
             img_video = ASSETS_DIR / f"img_{i:03d}.mp4"
-            _run_ffmpeg([
+            run_ffmpeg([
                 "ffmpeg", "-y",
                 "-loop", "1",
                 "-i", str(img_path),
@@ -111,11 +96,11 @@ async def compose(
                 "-an",
                 str(img_video),
             ])
-            f.write(f"file '{img_video}'\n")
+            f.write(f"file '{img_video.name}'\n")
 
     # 合并图片视频片段
     body_video = ASSETS_DIR / "body_video.mp4"
-    _run_ffmpeg([
+    run_ffmpeg([
         "ffmpeg", "-y",
         "-f", "concat", "-safe", "0",
         "-i", str(concat_list),
@@ -138,9 +123,9 @@ async def compose(
         seg_list = ASSETS_DIR / "segments.txt"
         with open(seg_list, "w") as f:
             for seg in segments:
-                f.write(f"file '{seg}'\n")
+                f.write(f"file '{seg.absolute()}'\n")
         video_only = ASSETS_DIR / "video_no_audio.mp4"
-        _run_ffmpeg([
+        run_ffmpeg([
             "ffmpeg", "-y",
             "-f", "concat", "-safe", "0",
             "-i", str(seg_list),
@@ -156,7 +141,7 @@ async def compose(
     # 混合 TTS + 背景音乐，输出最终视频
     # 音乐输入音量降至 0.35，避免与 TTS 混音后被压制到几乎听不见
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    _run_ffmpeg([
+    run_ffmpeg([
         "ffmpeg", "-y",
         "-i", str(video_only),
         "-i", str(tts_path),

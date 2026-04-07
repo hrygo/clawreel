@@ -38,22 +38,31 @@ def set_slack_channel(channel: str) -> None:
 
 
 def _try_slack_notify(blocks: list[dict]) -> None:
-    """尝试通过 Slack 发送 Block Kit 通知（非阻塞）。"""
+    """尝试通过 Slack 发送 Block Kit 通知（非阻塞且安全）。"""
     if not _slack_channel:
         return
+    
+    # 动态导入，避免在非 OpenClaw 环境下崩溃
     try:
         from openclaw.tools import message
-        t = threading.Thread(
-            target=lambda: message(
-                action="send",
-                channel="slack",
-                target=_slack_channel,
-                interactive={"blocks": blocks},
-            )
-        )
+        
+        def _send():
+            try:
+                message(
+                    action="send",
+                    channel="slack",
+                    target=_slack_channel,
+                    interactive={"blocks": blocks},
+                )
+            except Exception as e:
+                logger.debug("Slack 发送失败: %s", e)
+
+        t = threading.Thread(target=_send, daemon=True)
         t.start()
+    except (ImportError, ModuleNotFoundError):
+        logger.debug("未检测到 openclaw 环境，跳过 Slack 通知")
     except Exception as e:
-        logger.warning("Slack 通知发送失败: %s", e)
+        logger.warning("Slack 通知设置失败: %s", e)
 
 
 # ── HITL 节点实现 ─────────────────────────────────────────────────────────────
