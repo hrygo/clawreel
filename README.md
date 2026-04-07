@@ -16,11 +16,24 @@
 
 ## 🛠️ 安装说明
 
-确保环境为 `Python 3.10+`，你可以将本项目克隆后作为可执行 CLI 安装：
+确保环境为 `Python 3.10+`，你可以使用**一键安装脚本**自动配置环境与智能体技能：
 
 ```bash
+# 克隆仓库并进入目录
 git clone <repository_url> clawreel
 cd clawreel
+
+# 执行一键安装（自动识别 Claude Code / OpenCode / OpenClaw 环境）
+./install.sh
+```
+
+脚本将自动执行以下操作：
+1. **CLI 安装**：以可编辑模式 (`pip install -e .`) 安装全局 `clawreel` 命令。
+2. **技能部署**：自动感应并安装技能定义至 `.agents/skills/clawreel`。
+3. **环境初始化**：自动根据 `.env.example` 创建 `.env` 模板。
+
+手工安装（备选）：
+```bash
 pip install -e .
 ```
 安装完成后，系统即可使用全局命令 `clawreel`。

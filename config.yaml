@@ -55,5 +55,5 @@ publish:
 
 # AIGC 标识
 aigc:
-  label: "内容由AI生成"
+  label: "内容由 Sysphis AI 生成"
   position: "bottom-right"

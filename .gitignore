@@ -12,7 +12,7 @@ env/
 build/
 dist/
 .eggs/
-*.egg-info/
+*.egg-info
 
 
 # ── Project Specific ────────────────────────────────────────────────────────
