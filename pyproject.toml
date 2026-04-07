@@ -7,7 +7,7 @@ name = "clawreel"
 version = "1.0.0"
 description = "Agent-driven short video orchestration pipeline CLI."
 authors = [
-    {name = "Antigravity", email = "clawreel@openclaw.dev"}
+    {name = "Sisyphus", email = "clawreel@openclaw.dev"}
 ]
 readme = "README.md"
 requires-python = ">=3.10"

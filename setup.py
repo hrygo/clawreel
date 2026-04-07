@@ -4,7 +4,7 @@ setup(
     name="clawreel",
     version="1.0.0",
     description="Agent-driven short video orchestration pipeline.",
-    author="Antigravity",
+    author="Sisyphus",
     packages=find_packages(),
     install_requires=[
         "aiohttp",
