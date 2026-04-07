@@ -139,7 +139,9 @@ clawreel compose \
 ```
 
 **自动处理**：
-- 片头视频：`segments[0]` 自动生成 I2V/T2V 动态视频
+- ✅ 复用 Phase 3 生成的 `seg_*.jpg` 图片（优先）
+- ✅ 降级到 `body_*.jpg`（旧版本兼容）
+- 片头视频：`segments[0]` 自动生成 I2V/T2V 动态视频（如未提供 `--hook-prompt`，使用 `segments[0].image_prompt`）
 - 正文图片：`segments[1:]` 自动 FFmpeg xfade 转场合成
 - 音视频混合：TTS 配音 + 背景音乐自动混音
 
