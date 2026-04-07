@@ -138,47 +138,10 @@ clawreel compose \
   --music assets/bg_music.mp3
 ```
 
-**合成流程**（代码已实现，composer.py:264-303）：
-
-1. **片头视频生成**（`segments[0].is_hook`）：
-   ```python
-   # 片头图片 → I2V/T2V
-   hook_video = await generate_ai_video(
-       prompt=segments[0]["image_prompt"],
-       duration=segments[0]["duration_sec"]
-   )
-   ```
-
-2. **正文合成**（`segments[1:]`）：
-   ```python
-   # 每句图片 → FFmpeg xfade 转场
-   for seg in segments[1:]:
-       clip = f"clip_{i}.mp4"  # 图片 + duration_sec
-   _xfade_clips(clip_paths, clip_durations, body_video)
-   ```
-
-3. **片头 + 正文拼接**：
-   ```bash
-   ffmpeg -y \
-     -i assets/hook_video.mp4 \
-     -i assets/body_xfade.mp4 \
-     -filter_complex "[0:v][1:v]concat=n=2:v=1:a=0[outv]" \
-     -map "[outv]" \
-     -c:v libx264 -preset fast -crf 23 \
-     assets/body_with_hook.mp4
-   ```
-
-4. **混音**：
-   ```bash
-   ffmpeg -y \
-     -i assets/body_with_hook.mp4 \
-     -i assets/tts_output.mp3 \
-     -i assets/bg_music.mp3 \
-     -filter_complex "[2:a]volume=0.15[bg];[1:a][bg]amix=inputs=2:duration=first[outa]" \
-     -c:v copy -c:a aac -b:a 128k \
-     -t <total_duration> \
-     output/composed.mp4
-   ```
+**自动处理**：
+- 片头视频：`segments[0]` 自动生成 I2V/T2V 动态视频
+- 正文图片：`segments[1:]` 自动 FFmpeg xfade 转场合成
+- 音视频混合：TTS 配音 + 背景音乐自动混音
 
 **时间轴**：
 ```
