@@ -50,5 +50,29 @@ MODEL_TTS = "speech-2.8-hd"
 MODEL_MUSIC = "music-2.5+"
 
 # ── TTS 供应商配置 ───────────────────────────────────────────────────────────
-TTS_PROVIDER = os.getenv("TTS_PROVIDER", "minimax")  # "minimax" 或 "edge"
-TTS_VOICE = os.getenv("TTS_VOICE", "zh-CN-XiaoxiaoNeural")
+import yaml
+
+config_file = PROJECT_ROOT / "config.yaml"
+# Defaults in case config.yaml is missing
+TTS_CONFIG = {
+    "active_provider": "minimax",
+    "providers": {
+        "minimax": {
+            "voice_id": "female-shaonv",
+            "speed": 1.0,
+            "vol": 1.0,
+            "emotion": "happy"
+        },
+        "edge": {
+            "voice_id": "zh-CN-XiaoxiaoNeural"
+        }
+    }
+}
+
+if config_file.exists():
+    with open(config_file, "r", encoding="utf-8") as f:
+        _yaml_config = yaml.safe_load(f) or {}
+        if "tts" in _yaml_config:
+            TTS_CONFIG.update(_yaml_config["tts"])
+
+TTS_PROVIDER = os.getenv("TTS_PROVIDER", TTS_CONFIG.get("active_provider", "minimax"))

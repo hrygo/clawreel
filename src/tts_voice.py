@@ -8,12 +8,10 @@ from pathlib import Path
 import edge_tts
 
 from .api_client import api_post
-from .config import ASSETS_DIR, AUDIO_SAMPLE_RATE, TTS_PROVIDER, TTS_VOICE
+from .config import ASSETS_DIR, AUDIO_SAMPLE_RATE, TTS_PROVIDER, TTS_CONFIG
 from .utils import get_media_duration, save_hex_audio, check_base_resp
 
 logger = logging.getLogger(__name__)
-
-DEFAULT_MINIMAX_VOICE = "female-shaonv"
 
 
 async def generate_voice(
@@ -29,10 +27,13 @@ async def generate_voice(
     if provider is None:
         provider = TTS_PROVIDER
 
+    provider_config = TTS_CONFIG.get("providers", {}).get(provider, {})
+    default_voice = provider_config.get("voice_id")
+
     if provider == "edge":
-        path = await _generate_edge_voice(text, output_path, voice_id or TTS_VOICE)
+        path = await _generate_edge_voice(text, output_path, voice_id or default_voice)
     else:
-        path = await _generate_minimax_voice(text, output_path, voice_id or DEFAULT_MINIMAX_VOICE)
+        path = await _generate_minimax_voice(text, output_path, voice_id or default_voice)
     
     duration = get_media_duration(path)
     logger.info("✅ TTS 生成完成: %s (%.1f 秒)", path, duration)
@@ -59,6 +60,8 @@ async def _generate_minimax_voice(
 ) -> Path:
     """使用 MiniMax 生成 TTS 音频。"""
     logger.info("🎙️ 正在生成 MiniMax TTS，音色: %s, 文本长度: %d", voice_id, len(text))
+    
+    provider_config = TTS_CONFIG.get("providers", {}).get("minimax", {})
 
     result = await api_post(
         endpoint="/t2a_v2",
@@ -69,10 +72,10 @@ async def _generate_minimax_voice(
             "output_format": "hex",
             "voice_setting": {
                 "voice_id": voice_id,
-                "speed": 1.0,
-                "vol": 1.0,
-                "pitch": 0,
-                "emotion": "happy",
+                "speed": provider_config.get("speed", 1.0),
+                "vol": provider_config.get("vol", 1.0),
+                "pitch": provider_config.get("pitch", 0),
+                "emotion": provider_config.get("emotion", "happy"),
             },
             "audio_setting": {
                 "sample_rate": AUDIO_SAMPLE_RATE,

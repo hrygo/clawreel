@@ -13,8 +13,15 @@ minimax:
     music: "music-2.5+"           # music-2.5 不支持纯音乐
 
 tts:
-  provider: "minimax"              # "minimax" 或 "edge"
-  voice: "zh-CN-XiaoxiaoNeural"    # Edge TTS 默认音色，MiniMax 默认仍受 src/tts_voice.py 控制
+  active_provider: "minimax"       # 当前激活的 TTS 供应商: "minimax" 或 "edge"
+  providers:
+    minimax:
+      voice_id: "female-shaonv"
+      speed: 1.0
+      vol: 1.0
+      emotion: "happy"
+    edge:
+      voice_id: "zh-CN-XiaoxiaoNeural"
 
 audio:
   sample_rate: 44100             # ❌ 不用 32000
