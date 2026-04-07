@@ -68,7 +68,7 @@ git clone https://github.com/hrygo/clawreel && cd clawreel && ./install.sh
 
 ## FinOps Workflow (Aligned with CLI Phases)
 
-### Phase 0: Inventory Check ⚠️ MANDATORY (Zero Cost)
+### Phase 0: Inventory Check ⚠️ 必做（零成本）
 
 ```bash
 clawreel check --topic "Your video topic"

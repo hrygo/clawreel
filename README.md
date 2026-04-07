@@ -47,7 +47,7 @@ graph LR
     class E phase4; class F phase5; class G phase6
 ```
 
-* **Phase 0 – Check** ⚠️ MANDATORY：零成本扫描现有资源，智能判定生成方案。  
+* **Phase 0 – Check** ⚠️ 必做：零成本扫描现有资源，智能判定生成方案。  
 * **Phase 1 – Script**：生成剧本、口播词与视觉提示词。  
 * **Phase 2 – TTS**：将文字转为自然语音，支持多模型切换。  
 * **Phase 3 – Assets**：并行获取视频、图片、音乐，FinOps 跳过已有资源。  
