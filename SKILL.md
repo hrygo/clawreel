@@ -1,6 +1,6 @@
 ---
 name: clawreel
-description: Use this skill when you need to produce video content — especially short videos, social media clips, or TTS/voiceover audio. Covers the full semantic-alignment pipeline: writing scripts, Edge TTS with word-level timestamps, semantic segmentation, image generation per sentence, FFmpeg composition with precise timing, Whisper subtitle burning, and publishing to 抖音 (Douyin) or 小红书 (Xiaohongshu). Also use for music MV production, live-streaming scripts, narration generation, or any request spanning script → voice → video → publish. Does NOT trigger for video playback issues, codec questions, editing existing footage manually, or non-production questions.
+description: 触发：用户要制作短视频、配音、音乐MV、直播脚本。流程：脚本生成 → TTS配音（Edge逐词时间戳）→ 图片生成 → 视频合成 → 字幕烧录 → 发布。不触发：视频播放问题、编码问题、手动剪辑现有视频。
 ---
 
 # ClawReel - AI 短视频语义对齐流水线
@@ -14,32 +14,19 @@ description: Use this skill when you need to produce video content — especiall
 ## 流水线概览
 
 ```
-主题
-  │
-  ▼
-脚本生成（sentences 用 | 分隔）
-  │
-  ▼
-Edge TTS + 逐词时间戳 ──────────────────────────────────┐
-  │                                                      │
-  ▼                                                      │
-align（词→句对齐）                                       │
-  │                                                      │
-  ▼                                                      │
-segments.json（含每句：text / start_sec / end_sec / image_prompt）
-  │                                                      │
-  ├──▶ assets（按 segments 批量生成图片，每句一张）        │
-  │                                                      │
-  └──▶ TTS 音频 ─────────────────────────────────────────┤
-                                                        ▼
-                                                 compose（精确时长合成）
-                                                        │
-                                                        ▼
-                                                 post（字幕烧录 + AIGC）
-                                                        │
-                                                        ▼
-                                                 publish
+check → script → align → assets → compose → post → publish
+         │        │        │         │
+         │        │        │         └─ 片头视频（segments[0] I2V/T2V）
+         │        │        └─ 正文图片（segments[1:]）
+         │        └─ segments.json（assets/segments_xxx.json）
+         └─ script.json（assets/script_xxx.json）
 ```
+
+**核心规则**：
+- TTS 配音从 **0 秒开始**，片头 + 正文连续配音
+- `segments[0]` 是片头，`segments[1:]` 是正文
+- 片头时长由 TTS 自动决定（`segments[0].duration_sec`）
+- 所有 JSON 文件保存到 `assets/` 目录
 
 ---
 
@@ -77,129 +64,139 @@ M2.7 输出示例：
 ```json
 {
   "title": "AI觉醒",
-  "script": "你有没有想过，未来AI会超越人类？| 就在昨天，一个AI震惊了科学家。| 看完你就明白了。",
-  "sentences": ["你有没有想过，未来AI会超越人类？", "就在昨天，一个AI震惊了科学家。", "看完你就明白了。"],
-  "hooks": ["开头钩子1", "开头钩子2"],
+  "script": "你有没有想过，未来会是什么样？| 就在昨天，一个AI震惊了科学家。| 看完你就明白了。",
+  "sentences": ["你有没有想过，未来会是什么样？", "就在昨天，一个AI震惊了科学家。", "看完你就明白了。"],
+  "hook_text": "你有没有想过，未来会是什么样？",
+  "hook_prompt": "科技感开场，AI 数据流动，未来主义视觉冲击，电影级画面",
+  "style_prompt": "电影级科幻风格，高对比度冷色调光影，蓝紫色霓虹灯光，9:16 竖屏构图",
+  "image_prompts": ["科技感开场，AI 数据流动", "一个AI震惊科学家的画面", "看完就会明白的揭秘时刻"],
   "cta": "关注我，带你看清AI真相"
 }
 ```
 
-**注意**：`script` 字段用 `|` 分隔多句，每句独立对应一张图片。
+**注意**：
+- `script` 字段用 `|` 分隔多句，**第一句是片头文本**
+- `hook_text` 是片头配音文本（与 `sentences[0]` 相同）
+- `hook_prompt` 用于生成片头图片（I2V 优先）
+- `style_prompt` 是全局风格，与每句的 `image_prompts` 合并后生成图片
+- 脚本会自动保存到 `assets/script_<主题>_<日期>.json`
 
 ---
 
-## Phase 2: TTS + 语义对齐（核心）
-
-### 方式一：直接对齐（推荐）
+## Phase 2: TTS + 语义对齐 + 片头视频
 
 ```bash
-# 一次性完成：TTS 生成 + 词级时间戳 + 语义分句 → segments.json
+# 一次性完成：TTS + 词级时间戳 + 语义分句 + 片头标记
 clawreel align \
-  --text "你有没有想过，未来AI会超越人类？| 就在昨天，一个AI震惊了科学家。| 看完你就明白了。" \
-  --output segments.json \
+  --text "你有没有想过，未来会是什么样？| 就在昨天，一个AI震惊了科学家。| 看完你就明白了。" \
+  --script assets/script_xxx.json \
+  --output assets/segments_xxx.json \
   --split-long
 ```
 
-`segments.json` 输出结构：
+**输出结构**（`assets/segments_xxx.json`）：
 ```json
 {
-  "text": "你有没有想过，未来AI会超越人类？...",
   "segments": [
-    {
-      "index": 0,
-      "text": "你有没有想过，未来AI会超越人类？",
-      "start_sec": 0.0,
-      "end_sec": 3.24,
-      "duration_sec": 3.24,
-      "image_prompt": "短视频画面：探讨未来AI会超越人类的视觉场景，电影感，高质量，9:16 竖屏..."
-    },
-    ...
+    {"index": 0, "text": "你有没有想过...", "start_sec": 0.0, "duration_sec": 5.8, "is_hook": true},
+    {"index": 1, "text": "就在昨天...", "start_sec": 5.8, "duration_sec": 3.4}
   ]
 }
 ```
 
-### 方式二：分步执行
+**关键规则**：
+- TTS 配音**从 0 秒开始**，片头 + 正文连续
+- `segments[0]` 是片头（`is_hook: true`），`segments[1:]` 是正文
+- 片头时长由 TTS 自动决定
+- 片头图片 → I2V 视频优先，T2V 降级
 
-```bash
-# Step 1: TTS 生成（返回 word_timestamps_count）
-clawreel tts --text "你有没有想过..." --provider edge --voice zh-CN-XiaoxiaoNeural
+**TTS 提供商**：
 
-# Step 2: 独立对齐（调试用）
-clawreel align --text "你有没有想过..." --output segments.json
-```
-
-### TTS 提供商
-
-| Provider | 成本 | 时间戳 | 适用场景 |
-|----------|------|--------|----------|
-| `edge` | 免费 | ✅ 逐词（~50ms）| **语义对齐流水线必选** |
-| `minimax` | 付费 | ❌ 无 | 不支持语义对齐，会抛 `RuntimeError` |
+| Provider | 成本 | 时间戳 |
+|----------|------|--------|
+| `edge` | 免费 | ✅ 逐词（~50ms）**必选** |
+| `minimax` | 付费 | ❌ 不支持对齐 |
 
 ---
 
-## Phase 3: 图片生成（由 segments 驱动）
+## Phase 3: 图片生成
 
 ```bash
-clawreel assets --segments segments.json --max-concurrent 3
+clawreel assets --segments assets/segments_xxx.json
 ```
 
-**关键**：图片数量和 prompt 由 `segments.json` 决定。
-
-输出示例：
-```json
-{
-  "images": [
-    "assets/images/seg_000.jpg",
-    "assets/images/seg_001.jpg",
-    "assets/images/seg_002.jpg"
-  ],
-  "segments_count": 3,
-  "generated": 3
-}
-```
+**输出**：`assets/images/seg_000.jpg`（片头）、`seg_001.jpg`...（正文）
 
 ---
 
-## Phase 4: 合成
+## Phase 4: 视频合成
 
 ```bash
 clawreel compose \
   --tts assets/tts_output.mp3 \
-  --segments segments.json \
-  --music assets/bg_music.mp3 \
-  --transition fade
+  --segments assets/segments_xxx.json \
+  --music assets/bg_music.mp3
 ```
 
-**参数说明：**
+**合成流程**（代码已实现，composer.py:264-303）：
 
-| 参数 | 必填 | 说明 |
-|------|------|------|
-| `--tts` | ✅ | TTS 音频路径 |
-| `--segments` | ✅ | `segments.json` 路径（含精确时长）|
-| `--music` | ✅ | 背景音乐路径 |
-| `--transition` | 否 | 转场类型：`fade`/`slide_left`/`slide_right`/`zoom`/`none`（默认 `fade`）|
-| `--output` | 否 | 输出路径，默认 `output/composed.mp4` |
+1. **片头视频生成**（`segments[0].is_hook`）：
+   ```python
+   # 片头图片 → I2V/T2V
+   hook_video = await generate_ai_video(
+       prompt=segments[0]["image_prompt"],
+       duration=segments[0]["duration_sec"]
+   )
+   ```
 
-**合成逻辑**：
-- 每张图持续 `segments[i].duration_sec` 秒（精确值，不是均分）
-- 图片内容由 `segments[i].image_prompt` 生成（语义相关）
-- 背景音乐自动循环扩展以匹配 TTS 时长
+2. **正文合成**（`segments[1:]`）：
+   ```python
+   # 每句图片 → FFmpeg xfade 转场
+   for seg in segments[1:]:
+       clip = f"clip_{i}.mp4"  # 图片 + duration_sec
+   _xfade_clips(clip_paths, clip_durations, body_video)
+   ```
+
+3. **片头 + 正文拼接**：
+   ```bash
+   ffmpeg -y \
+     -i assets/hook_video.mp4 \
+     -i assets/body_xfade.mp4 \
+     -filter_complex "[0:v][1:v]concat=n=2:v=1:a=0[outv]" \
+     -map "[outv]" \
+     -c:v libx264 -preset fast -crf 23 \
+     assets/body_with_hook.mp4
+   ```
+
+4. **混音**：
+   ```bash
+   ffmpeg -y \
+     -i assets/body_with_hook.mp4 \
+     -i assets/tts_output.mp3 \
+     -i assets/bg_music.mp3 \
+     -filter_complex "[2:a]volume=0.15[bg];[1:a][bg]amix=inputs=2:duration=first[outa]" \
+     -c:v copy -c:a aac -b:a 128k \
+     -t <total_duration> \
+     output/composed.mp4
+   ```
+
+**时间轴**：
+```
+0s ──[片头视频]── 5.8s ──[正文图1]── 9.2s ──[正文图2]── 12.5s
+│                 │                  │                  │
+└──── TTS 配音（连续）─────────────────────────────────┘
+└──── 背景音乐（循环）──────────────────────────────────┘
+```
+
+**输出**：`output/composed.mp4`（总时长 = 片头 + 正文）
 
 ---
 
-## Phase 5: 后期处理（FFmpeg SRT + AIGC）
+## Phase 5: 后期处理
 
 ```bash
-# FFmpeg SRT 烧录 + AIGC 水印（需传入已有 SRT）
 clawreel post --video output/composed.mp4 --title "AI觉醒"
-```
-
-### 字幕烧录一键命令
-
-```bash
-# Whisper 提取 + FFmpeg 烧录（用于已有视频字幕烧录）
-clawreel burn-subs -v input.mp4
-clawreel burn-subs -v input.mp4 --model medium --language zh
+# Whisper 字幕提取 + FFmpeg 烧录 + AIGC 水印
 ```
 
 ---
@@ -207,30 +204,24 @@ clawreel burn-subs -v input.mp4 --model medium --language zh
 ## Phase 6: 发布
 
 ```bash
-clawreel publish \
-  --video output/final.mp4 \
-  --title "AI觉醒" \
-  --platforms xiaohongshu douyin
+clawreel publish --video output/final.mp4 --title "AI觉醒" --platforms douyin xiaohongshu
 ```
 
 ---
 
 ## 完整工作流示例
 
-**用户：** "帮我做一个关于 AI 觉醒的短视频"
+**用户**："帮我做一个 AI 觉醒的短视频"
 
 ```
-你 → clawreel check --topic "AI觉醒" → 展示资源状态 → 询问确认
+你 → clawreel check --topic "AI觉醒"
 用户 → "开始"
-你 → clawreel script --topic "AI觉醒" → 展示 title/script/hooks → 询问满意
-用户 → "满意"
-你 → clawreel align --text "<脚本内容>" --output segments.json --split-long
-你 → clawreel assets --segments segments.json
-你 → 展示生成的图片 → 询问满意？（可选 HITL 审核）
-用户 → "y"
-你 → clawreel compose --tts assets/tts_output.mp3 --segments segments.json --music assets/bg_music.mp3
+你 → clawreel script --topic "AI觉醒" → 展示脚本 → 用户满意？
+你 → clawreel align --text "<脚本>" --script assets/script_xxx.json --output assets/segments_xxx.json
+你 → clawreel assets --segments assets/segments_xxx.json
+你 → 展示图片 → 用户满意？
+你 → clawreel compose --tts assets/tts_output.mp3 --segments assets/segments_xxx.json --music assets/bg_music.mp3
 你 → clawreel post --video output/composed.mp4 --title "AI觉醒"
-你 → 询问发布平台 → 用户确认
 你 → clawreel publish --video output/final.mp4 --title "AI觉醒" --platforms douyin xiaohongshu
 ```
 
@@ -238,47 +229,69 @@ clawreel publish \
 
 ## 关键原则
 
-1. **检查优先** — 始终先运行 `clawreel check`（零成本）
-2. **Edge TTS 必选** — 语义对齐流水线强制要求 Edge TTS，不支持 MiniMax TTS
-3. **对齐分句** — 脚本用 `|` 分隔句子
-4. **精确时长** — `segments.json` 的 `duration_sec` 来自 Edge TTS 逐词时间戳
-5. **每句一图** — 图片数量由分句数量决定
-6. **发布确认** — Phase 6 必须等待用户明确确认
+1. **成本控制** — 先 `check`（零成本），再生成
+2. **Edge TTS 必选** — 不支持 MiniMax（无逐词时间戳）
+3. **精确时长** — `duration_sec` 来自 TTS，不是估算
+4. **每句一图** — 图片数量 = 句子数量
+5. **片头自动** — `segments[0].is_hook` 自动生成片头视频
 
 ---
 
-## 常见问题排查
+## 常见问题
 
-### "MiniMax TTS 不支持词级时间戳"
+**"MiniMax TTS 不支持词级时间戳"**
+→ 使用 Edge TTS：`--provider edge`
 
-**原因**：语义对齐流水线强制使用 Edge TTS，MiniMax TTS 会抛 `RuntimeError`。
+**"图片数量与分句不一致"**
+→ 加 `--split-long` 参数拆分长句
 
-**解决**：将 `config.yaml` 中的 `TTS_PROVIDER` 设为 `edge`，或命令行传入 `--provider edge`。
-
-### segments.json 句子数超过 30
-
-**原因**：`align` 抛出异常，句子数超过上限。
-
-**解决**：将脚本拆分为多个短视频，每条 60 秒以内。
-
-### 图片数量与分句不一致
-
-**原因**：`align` 未传 `--split-long`，超 5 秒的长句未拆分。
-
-**解决**：重新运行 `clawreel align --text "..." --output segments.json --split-long`。
+**"句子数超过 30"**
+→ 拆分为多个短视频（每条 ≤ 60s）
 
 ---
 
-## CLI 命令参考
+## CLI 命令
 
-| 命令 | 用途 |
-|------|------|
-| `clawreel check --topic "..."` | 资源检查 |
-| `clawreel script --topic "..."` | 脚本生成 |
-| `clawreel align --text "..."` | TTS + 语义对齐（核心）|
-| `clawreel tts --text "..."` | TTS 生成 |
-| `clawreel assets --segments PATH` | 图片批量生成 |
-| `clawreel compose --tts PATH --segments PATH --music PATH` | 视频合成 |
-| `clawreel post --video PATH --title "..."` | 后期处理 |
-| `clawreel burn-subs -v PATH` | Whisper 字幕烧录 |
-| `clawreel publish --video PATH --title "..." --platforms ...` | 多平台发布 |
+### 主流程命令（对应 SOP 7 阶段）
+
+```bash
+# Phase 0: 资源检查（零成本）
+clawreel check --topic "主题"
+
+# Phase 1: 脚本生成
+clawreel script --topic "主题"
+
+# Phase 2: TTS + 语义对齐（TTS 内置于 align）
+clawreel align --text "文本" --script PATH --output PATH
+
+# Phase 3: 图片生成
+clawreel assets --segments PATH
+
+# Phase 4: 视频合成（含 I2V/T2V 片头）
+clawreel compose --tts PATH --segments PATH --music PATH
+
+# Phase 5: 后期处理（字幕 + AIGC）
+clawreel post --video PATH --title "标题"
+
+# Phase 6: 多平台发布
+clawreel publish --video PATH --platforms ...
+```
+
+### 辅助/调试命令
+
+```bash
+# 独立 TTS 测试（非流程命令）
+clawreel tts --text "文本" --provider edge
+
+# 独立音乐生成（可在任意阶段使用）
+clawreel music --prompt "风格" --duration 60
+
+# 字幕提取 + 烧录（独立工具）
+clawreel burn-subs --video PATH --model medium
+```
+
+**文件约定**：
+- 脚本：`assets/script_<主题>_<日期>.json`
+- 片段：`assets/segments_<主题>_<日期>.json`
+- 图片：`assets/images/seg_*.jpg`
+- 视频：`output/composed.mp4` → `output/final.mp4`
