@@ -40,7 +40,7 @@ async def compose_sequential(
 
     Args:
         tts_path:       TTS 音频文件路径
-        segments:       ScriptSegment 列表（含精确 duration_sec）
+        segments:       ScriptSegment 列表（含精确 duration_sec，可能包含 hooks 段）
         music_path:     背景音乐路径
         output_path:    输出路径，默认 output/composed.mp4
         transition:     转场类型：fade / slide_left / slide_right / zoom / none
@@ -158,7 +158,7 @@ async def compose_sequential(
     async def make_clip(i: int, img_path: Path, seg: dict):
         clip_path = body_dir / f"clip_{i:03d}.mp4"
         clip_duration = seg["duration_sec"]
-        run_ffmpeg([
+        await asyncio.to_thread(run_ffmpeg, [
             "ffmpeg", "-y",
             "-loop", "1",
             "-i", str(img_path),

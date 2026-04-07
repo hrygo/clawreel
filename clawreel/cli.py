@@ -42,6 +42,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger("clawreel")
 
+# 脚本句子分隔符（与 script_generator.py 保持一致）
+SCRIPT_SEPARATOR = "|"
+
 
 def print_json(data):
     print(json.dumps(data, ensure_ascii=False, indent=2))
@@ -169,23 +172,79 @@ async def cmd_tts(args):
 
 async def cmd_align(args):
     """给定文本 + TTS 音频，独立输出对齐后的 segments JSON。"""
+    script_data = None
+    hooks_text = None
+    hook_prompt = None
+    style_prompt = None
+    image_prompts = None
+
+    if args.script:
+        try:
+            script_data = json.loads(Path(args.script).read_text(encoding="utf-8"))
+
+            if "hooks" in script_data:
+                hooks_text = script_data["hooks"]
+                logger.info("✅ 从脚本 %s 读取 %d 个 hooks", args.script, len(hooks_text))
+
+            if "hook_prompt" in script_data:
+                hook_prompt = script_data["hook_prompt"]
+                logger.info("✅ 从脚本 %s 读取 hook_prompt", args.script)
+
+            if "style_prompt" in script_data:
+                style_prompt = script_data["style_prompt"]
+                logger.info("✅ 从脚本 %s 读取 style_prompt", args.script)
+
+            if "image_prompts" in script_data:
+                image_prompts = script_data["image_prompts"]
+                logger.info("✅ 从脚本 %s 读取 %d 个 image_prompts", args.script, len(image_prompts))
+            else:
+                logger.warning("⚠️ 脚本文件 %s 未包含 image_prompts 字段", args.script)
+
+        except (json.JSONDecodeError, FileNotFoundError) as e:
+            logger.warning("⚠️ 脚本文件读取失败: %s，跳过", e)
+
+    if not image_prompts and args.image_prompts:
+        try:
+            image_prompts = json.loads(args.image_prompts)
+            logger.warning("⚠️ 使用已废弃的 --image-prompts 参数，建议使用 --script")
+        except json.JSONDecodeError as e:
+            logger.warning("⚠️ image_prompts JSON 解析失败: %s，跳过", e)
+
+    if hook_prompt and style_prompt:
+        hook_prompt = f"{style_prompt}, {hook_prompt}"
+        logger.info("✅ 组合完整 hook_prompt (style + scene)")
+
+    if image_prompts and style_prompt:
+        image_prompts = [f"{style_prompt}, {prompt}" for prompt in image_prompts]
+        logger.info("✅ 组合完整 image_prompts (style + scene × %d)", len(image_prompts))
+
+    full_text = args.text
+    hooks_count = 0
+
+    if hooks_text and script_data:
+        if args.text.startswith(hooks_text[0]):
+            hooks_count = len(hooks_text)
+            logger.info("✅ hooks 文本已在正文中，hooks 数量=%d", hooks_count)
+        else:
+            hooks_joined = SCRIPT_SEPARATOR.join(hooks_text)
+            full_text = f"{hooks_joined}{SCRIPT_SEPARATOR}{args.text}"
+            hooks_count = len(hooks_text)
+            logger.info("✅ hooks 文本拼接到正文前面，hooks 数量=%d", hooks_count)
+
     result = await generate_voice(
-        text=args.text,
+        text=full_text,
         provider="edge",
         voice_id=args.voice,
     )
 
-    # 直接用 args.text，align_segments 用的是同一文本
-    image_prompts = None
-    if args.image_prompts:
-        try:
-            image_prompts = json.loads(args.image_prompts)
-        except json.JSONDecodeError as e:
-            logger.warning("⚠️ image_prompts JSON 解析失败: %s，跳过", e)
+    if hook_prompt and hooks_count > 0 and image_prompts:
+        for i in range(min(hooks_count, len(image_prompts))):
+            image_prompts[i] = hook_prompt
+        logger.info("✅ 前 %d 个 image_prompts 替换为 hook_prompt", hooks_count)
 
     audio_duration = get_media_duration(result["audio_path"])
     segments = align_segments(
-        args.text, result["word_timestamps"],
+        full_text, result["word_timestamps"],
         audio_duration=audio_duration,
         image_prompts=image_prompts,
     )
@@ -193,7 +252,7 @@ async def cmd_align(args):
         segments = split_long_segments(segments)
 
     output = {
-        "text": args.text,
+        "text": full_text,
         "audio_path": str(result["audio_path"]),
         "srt": str(result["srt_path"]) if result["srt_path"] else None,
         "segments": [
@@ -374,17 +433,13 @@ def main():
     p.add_argument("--max-concurrent", type=int, default=3)
 
     # Phase 4: compose
-    p = subparsers.add_parser("compose", help="[Phase 4] 视频合成（T2V/I2V 片头 + FFmpeg 转场）")
+    p = subparsers.add_parser("compose", help="[Phase 4] 视频合成（FFmpeg 转场）")
     p.add_argument("--tts", required=True, metavar="PATH")
     p.add_argument("--segments", "-s", required=True, metavar="PATH")
     p.add_argument("--music", required=True, metavar="PATH")
     p.add_argument("--output", "-o", default=None, metavar="PATH")
     p.add_argument("--transition", default="fade",
                    choices=["fade", "slide_left", "slide_right", "zoom", "none"])
-    p.add_argument("--hook-prompt", default=None,
-                   help="片头视频提示词（I2V/T2V），不提供则从 segments JSON 读取")
-    p.add_argument("--hook-duration", type=int, default=6,
-                   help="片头时长（秒），默认 6s")
 
     # Phase 5: post
     p = subparsers.add_parser("post", help="[Phase 5] 后期处理（字幕 + AIGC）")

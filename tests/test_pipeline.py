@@ -62,14 +62,22 @@ class TestScriptGenerator:
         from clawreel.script_generator import ScriptData
         data: ScriptData = {
             "title": "测试标题",
+            "style_prompt": "温馨治愈风格，高质量摄影作品",
             "script": "测试脚本内容",
+            "sentences": ["测试句子1", "测试句子2"],
             "hooks": ["钩子1", "钩子2"],
+            "hook_prompt": "片头画面描述",
             "cta": "关注我",
+            "image_prompts": ["提示词1", "提示词2"],
         }
         assert "title" in data
+        assert "style_prompt" in data
         assert "script" in data
+        assert "sentences" in data
         assert "hooks" in data
+        assert "hook_prompt" in data
         assert "cta" in data
+        assert "image_prompts" in data
 
 
 class TestTTS:
