@@ -1,92 +1,127 @@
 #!/bin/bash
 
-# ClawReel One-Click Installer - Strategic Refactor (Ver 2.0)
-# - Environment Awareness: Claude Code (~/.claude), OpenClaw (~/.openclaw), OpenCode (~/.opencode)
-# - Standards Compliance: npx skill (.agents/skills)
-# - CLI Installation: Global (pip install -e .)
+# ClawReel One-Click Installer (Ver 3.0)
+# - Standalone mode: curl ... | bash  (auto-clones repo first)
+# - Post-clone mode: ./install.sh     (already inside repo)
 # Compatible with Bash 3.2+ (MacOS Default)
 
 set -e
 
-# Colors for output
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-RED='\033[0;31m'
-NC='\033[0m' # No Color
+# ── Colors ────────────────────────────────────────────────────────────────────
+RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; NC='\033[0m'
 
-echo -e "${GREEN}🚀 Starting ClawReel Strategic Installation...${NC}"
+# ── Repository info ───────────────────────────────────────────────────────────
+REPO_URL="https://github.com/hrygo/clawreel.git"
+INSTALL_DIR="${HOME}/.clawreel-install"
+SKILL_URL="https://raw.githubusercontent.com/hrygo/clawreel/main/SKILL.md"
 
-# 1. Define Verified Global Skill Paths (Home-based)
-# Claude Code: ~/.claude/skills
-# OpenClaw: ~/.openclaw/skills
-# OpenCode: ~/.opencode/skills
-# OpenCode (Config): ~/.config/opencode/skills
-AGENT_NAMES=("Claude Code" "OpenClaw" "OpenCode" "OpenCode (Config)")
-AGENT_PATHS=(
-    "$HOME/.claude/skills"
-    "$HOME/.openclaw/skills"
-    "$HOME/.opencode/skills"
-    "$HOME/.config/opencode/skills"
-)
+info()    { echo -e "${GREEN}[clawreel]${NC} $1"; }
+warn()    { echo -e "${YELLOW}[clawreel]${NC} $1"; }
+err()     { echo -e "${RED}[clawreel]${NC} $1"; exit 1; }
+confirm() { echo -e "${YELLOW}[clawreel]${NC} $1"; }
 
-# 2. Workspace Root Detection (for npx skill / local agents)
-CURRENT_DIR=$(pwd)
-WORKSPACE_ROOT="$CURRENT_DIR"
-while [[ "$WORKSPACE_ROOT" != "/" && ! -d "$WORKSPACE_ROOT/.git" && ! -f "$WORKSPACE_ROOT/pyproject.toml" && ! -d "$WORKSPACE_ROOT/.agents" ]]; do
-    PARENT=$(dirname "$WORKSPACE_ROOT")
-    if [[ "$PARENT" == "$WORKSPACE_ROOT" ]]; then break; fi
-    WORKSPACE_ROOT="$PARENT"
-done
+# ── Detect: am I inside the repo? ────────────────────────────────────────────
+inside_repo() {
+    [[ -f "pyproject.toml" && -d ".git" ]]
+}
 
-# Add Workspace-local path (follows npx skill convention)
-AGENT_NAMES+=("Project Local (.agents/skills)")
-AGENT_PATHS+=("$WORKSPACE_ROOT/.agents/skills")
-
-# 3. CLI Tool Installation
-echo -e "\nInstalling ${YELLOW}clawreel${NC} CLI tool globally..."
-if ! pip install -e . > /dev/null 2>&1; then
-    echo -e "${RED}Error: CLI installation failed. Please check your Python environment.${NC}"
-    exit 1
-fi
-echo -e "${GREEN}✅ CLI tool 'clawreel' installed successfully.${NC}"
-
-# 4. Multi-Platform Skill Deployment
-echo -e "\n${GREEN}Checking for AI Agent environments...${NC}"
-
-DEPLOYED_COUNT=0
-for ((i=0; i<${#AGENT_NAMES[@]}; i++)); do
-    NAME="${AGENT_NAMES[i]}"
-    SKILLS_DIR="${AGENT_PATHS[i]}"
-    TOOL_ROOT=$(dirname "$SKILLS_DIR")
-    
-    # Check if the tool root exists (indicating the environment is available)
-    if [[ -d "$TOOL_ROOT" ]]; then
-        SKILL_TARGET_DIR="$SKILLS_DIR/clawreel"
-        mkdir -p "$SKILL_TARGET_DIR"
-        
-        echo -e "  - ${GREEN}$NAME${NC}: Found environment, deploying to ${YELLOW}${SKILLS_DIR/#$HOME/~}/clawreel${NC}..."
-        ln -sf "$CURRENT_DIR/SKILL.md" "$SKILL_TARGET_DIR/SKILL.md"
-        DEPLOYED_COUNT=$((DEPLOYED_COUNT + 1))
+# ── Self-update: fetch latest install.sh ──────────────────────────────────────
+update_self() {
+    local tmp
+    tmp=$(mktemp)
+    if command -v curl >/dev/null 2>&1; then
+        curl -fsSL "https://raw.githubusercontent.com/hrygo/clawreel/main/install.sh" -o "$tmp"
+    elif command -v wget >/dev/null 2>&1; then
+        wget -qO "$tmp" "https://raw.githubusercontent.com/hrygo/clawreel/main/install.sh"
+    else
+        err "curl or wget is required to download the installer."
     fi
-done
+    chmod +x "$tmp"
+    exec "$tmp" "$@"
+}
 
-# 5. Configuration Guidance
-echo -e "\n${GREEN}⚙️ Configuration Setup:${NC}"
-echo -e "The ${YELLOW}Skill Definition${NC} (SKILL.md) has been deployed."
-echo -e "The ${YELLOW}ClawReel Tool${NC} requires API keys (e.g., MINIMAX_API_KEY)."
+# ── Clone (or update) the repo ────────────────────────────────────────────────
+clone_or_pull() {
+    info "📦 Cloning / updating ClawReel..."
 
-echo -e "Note: The skill definition itself ${YELLOW}does NOT${NC} need a .env file."
-echo -e "Recommendation: Set your API keys in your ${YELLOW}environment variables${NC} or in the project's ${YELLOW}.env${NC} file."
-
-if [[ ! -f ".env" ]]; then
-    if [[ -f ".env.example" ]]; then
-        echo -e "${YELLOW}Notice: No .env file found in this project directory.${NC}"
+    if [[ -d "${INSTALL_DIR}/.git" ]]; then
+        info "Repo already exists at ${INSTALL_DIR}, pulling latest..."
+        git -C "$INSTALL_DIR" pull --ff-only origin main 2>/dev/null || \
+            warn "Pull failed (可能是本地修改)，继续使用现有版本..."
+    else
+        rm -rf "$INSTALL_DIR"
+        git clone --depth=1 "$REPO_URL" "$INSTALL_DIR"
+        info "✅ 源码克隆完成"
     fi
-else
-    echo -e "${GREEN}Found .env file in project directory.${NC}"
-fi
+}
 
-echo -e "\n${GREEN}✅ Installation Complete!${NC}"
-echo -e "1. CLI: You can now use the ${YELLOW}clawreel${NC} command in any workspace."
-echo -e "2. Skills: Deployed to ${YELLOW}$DEPLOYED_COUNT${NC} environment(s)."
-echo -e "3. Verify: Check your Agent UI or run ${YELLOW}ls -l ~/.claude/skills/clawreel/SKILL.md${NC}\n"
+# ── Core: pip install CLI + deploy skill ─────────────────────────────────────
+do_install() {
+    local repo_dir="${1:-.}"
+
+    info "🚀 开始安装 ClawReel..."
+
+    # 1. CLI
+    info "⚙️  安装 clawreel CLI..."
+    if pip install -e "$repo_dir" > /dev/null 2>&1; then
+        info "✅ CLI 'clawreel' 安装成功"
+    else
+        err "❌ pip install -e . 失败，请检查 Python 环境（需要 Python 3.10+）"
+    fi
+
+    # 2. Deploy SKILL.md to known agent environments
+    info "🤖 部署 Skill 到 AI Agent 环境..."
+
+    # Determine skill targets
+    local targets=()
+    [[ -d "${HOME}/.claude/skills" ]]        && targets+=("${HOME}/.claude/skills")
+    [[ -d "${HOME}/.openclaw/skills" ]]       && targets+=("${HOME}/.openclaw/skills")
+    [[ -d "${HOME}/.opencode/skills" ]]       && targets+=("${HOME}/.opencode/skills")
+    [[ -d "${HOME}/.config/opencode/skills" ]] && targets+=("${HOME}/.config/opencode/skills")
+    [[ -d "$(pwd)/.agents/skills" ]]         && targets+=("$(pwd)/.agents/skills")
+
+    if [[ ${#targets[@]} -eq 0 ]]; then
+        warn "未检测到 Claude Code / OpenClaw / OpenCode 环境，跳过 Skill 部署。"
+        warn "Skill 文件位于: ${repo_dir}/SKILL.md"
+    else
+        for dir in "${targets[@]}"; do
+            mkdir -p "$dir/clawreel"
+            ln -sf "${repo_dir}/SKILL.md" "$dir/clawreel/SKILL.md"
+            info "  ✅ 部署到 ${dir/#$HOME/~}/clawreel/"
+        done
+    fi
+
+    # 3. Env setup hint
+    echo ""
+    info "⚙️  环境配置提示:"
+    if [[ ! -f "${repo_dir}/.env" && -f "${repo_dir}/.env.example" ]]; then
+        warn "检测到 .env.example，请创建 .env 并填入 MINIMAX_API_KEY"
+    fi
+}
+
+# ── Entry ─────────────────────────────────────────────────────────────────────
+main() {
+    echo -e "${CYAN}[clawreel]${NC} 欢迎使用 AI 短视频自动化流水线 v3.0"
+    echo ""
+
+    if inside_repo; then
+        info "检测到已在仓库目录内，执行本地安装..."
+        do_install "$(pwd)"
+    else
+        info "检测到不在仓库目录内，准备完整安装..."
+        clone_or_pull
+        do_install "$INSTALL_DIR"
+    fi
+
+    echo ""
+    info "✅ 安装完成!"
+    echo ""
+    info "下一步："
+    echo -e "  1. 填写 API Key:  ${YELLOW}cp .env.example .env${NC}  → 编辑 .env"
+    echo -e "  2. 验证 CLI:      ${YELLOW}clawreel --help${NC}"
+    echo -e "  3. 开始创作:      ${YELLOW}clawreel check --topic \"AI未来趋势\"${NC}"
+    echo ""
+    echo -e "  文档: ${YELLOW}https://github.com/hrygo/clawreel${NC}"
+}
+
+main "$@"

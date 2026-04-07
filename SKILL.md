@@ -13,21 +13,25 @@ description: Use this skill when you need to produce video content — especiall
 
 ## Prerequisites
 
-**This skill requires the `clawreel` CLI tool.**
-
-### If `clawreel` command is not found:
+**一键安装（一行命令，自动完成克隆 + CLI + Skill 部署）：**
 
 ```bash
-./install.sh
+curl -fsSL https://raw.githubusercontent.com/hrygo/clawreel/main/install.sh | bash
 ```
 
-### Required Configuration
+**或手动安装：**
 
-| Item | Requirement |
-|------|-------------|
-| **MINIMAX_API_KEY** | Required for video, images, music generation |
-| **Python** | 3.10+ |
-| **FFmpeg** | Required for video composition |
+```bash
+git clone https://github.com/hrygo/clawreel && cd clawreel && ./install.sh
+```
+
+**安装后确认：**
+
+| Item | Verify Command |
+|------|---------------|
+| CLI 可用 | `clawreel --help` |
+| Skill 已部署 | `ls ~/.claude/skills/clawreel/` |
+| API Key | `cp .env.example .env` → 编辑填入 `MINIMAX_API_KEY` |
 
 ---
 
@@ -49,86 +53,70 @@ description: Use this skill when you need to produce video content — especiall
 
 ## ⚠️ CRITICAL: Resource Check Before Generation
 
-**This is a FinOps requirement. Always check existing resources FIRST before any generation.**
-
-### Step 0: Inventory Check
-
-**Quick Mode (Free):**
-```bash
-clawreel check --topic "AI未来趋势"
-```
-
-**Smart Mode (LLM-powered, more accurate):**
-```bash
-clawreel check --topic "AI未来趋势" --smart
-```
-
-The LLM mode understands semantic similarity — it knows that "AI发展趋势" and "人工智能未来趋势" are related even if filenames don't match exactly.
+**Always check existing resources FIRST — AI assets are expensive, never regenerate without confirmation.**
 
 ### Resource Decision Matrix
 
 | Scenario | Action | API Calls |
 |----------|--------|-----------|
-| All resources exist, topic matches | Use existing | 0 |
+| All resources exist | Use existing | 0 |
 | Partial resources exist | Generate missing only | ~50% |
 | New topic or user wants fresh | Generate all | 100% |
 | Generation failed mid-way | Resume from failure | ~30% |
 
-### LLM Smart Recommendations
+---
 
-When using `--smart`, the LLM will analyze:
-- Is the new topic semantically similar to existing resources?
-- Can images/music be reused even with different wording?
-- What is the optimal regeneration strategy?
+## FinOps Workflow (Aligned with CLI Phases)
 
-Example output with `--smart`:
+### Phase 0: Inventory Check ⚠️ MANDATORY (Zero Cost)
+
+```bash
+clawreel check --topic "Your video topic"
+clawreel check --topic "Your video topic" --smart   # LLM semantic mode
+```
+
+**Quick mode output:**
 ```json
 {
+  "topic": "Your video topic",
+  "normalized_topic": "your_video_topic",
+  "existing": {
+    "script": "assets/script_topic_20260407.json",
+    "tts": "assets/tts_topic_20260407.mp3",
+    "video": null,
+    "images": ["assets/img_topic_001.png"],
+    "music": null
+  },
+  "missing": ["video", "music"],
+  "recommendation": "generate_missing",
+  "cost_estimate": {
+    "full": "~¥1.5 (T2V + 3图片 + 音乐 + TTS)",
+    "incremental": "~¥0.3-0.5 (仅缺失资源)"
+  }
+}
+```
+
+**Smart mode (`--smart`) additionally outputs:**
+```json
+{
+  "recommendation": "llm_guided",
   "llm_suggestion": {
     "can_reuse": [
       {"type": "image", "path": "...", "reason": "科技风格图片可复用"},
       {"type": "music", "path": "...", "reason": "轻快背景音乐适合"}
     ],
-    "must_regenerate": [
-      {"type": "script", "reason": "主题不同需要新内容"}
-    ],
+    "must_regenerate": [{"type": "script", "reason": "主题不同需要新内容"}],
     "recommended_plan": "复用图片和音乐，只重新生成脚本和配音",
     "estimated_savings": "约 60%"
   }
 }
 ```
 
----
-
-## FinOps Workflow (Revised)
-
-### Phase 0: Inventory Check ⚠️ MANDATORY (Zero Cost)
-
-```bash
-clawreel check --topic "Your video topic"
-```
-
-**Output:**
-```json
-{
-  "topic": "Your video topic",
-  "existing": {
-    "script": "assets/script_20260407_120000.json",
-    "tts": "assets/tts_20260407_120000.mp3",
-    "video": null,
-    "images": ["assets/img_001.png"],
-    "music": null
-  },
-  "missing": ["video", "music"],
-  "recommendation": "generate_missing",
-  "reuse_prompt": "Found 1 image for topic 'Your video topic'. Generate only missing video and music."
-}
-```
-
 **Required Action:**
-1. Display existing resources to user
-2. Ask: "发现已有资源（1张图片）。要复用现有资源，只生成缺失的视频和音乐吗？"
-3. **Wait for decision** before any generation
+1. Display existing resources and missing list
+2. Show cost_estimate to user
+3. Ask: "发现已有资源 X 个，缺失 Y 个，预计成本 ¥Z。要开始生成吗？"
+4. **Wait for decision** before any generation
 
 ---
 
@@ -160,8 +148,6 @@ clawreel script --topic "Your video topic"
 
 ### Phase 2: TTS Generation (If Needed)
 
-**Only run if no TTS exists for this topic:**
-
 ```bash
 clawreel tts --text "配音文本" [--provider minimax|edge]
 ```
@@ -186,29 +172,39 @@ clawreel assets \
   --image-prompt "正文配图描述" \
   --count 3 \
   --music-prompt "背景音乐风格描述" \
+  --topic "Your topic" \
   --skip-existing  # IMPORTANT: Skip if files exist
 ```
 
-**Parameters:**
-| Parameter | Required | Default | Description |
-|-----------|----------|--------|-------------|
-| `--skip-existing` | No | false | Skip generation if files already exist |
-| `--force` | No | false | Force regeneration (costs money!) |
+**Full parameters:**
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `--hook-prompt` | required | 视频开头 6 秒的视觉提示词 |
+| `--image-prompt` | required | 正文卡片图片提示词 |
+| `--count` | 3 | 图片张数 |
+| `--music-prompt` | 轻快短视频 | 背景音乐风格描述 |
+| `--topic` | - | 主题名（用于 FinOps 匹配现有资源） |
+| `--skip-existing` | false | 发现同主题资源则跳过 |
+| `--force` | false | 强制重新生成（消耗 API） |
+| `--video-duration` | 6 | 视频秒数（范围 3-30） |
+| `--music-duration` | 60 | 音乐秒数（范围 15-300） |
 
 **Output:**
 ```json
 {
-  "video": "assets/hook_video_20260407.mp4",
-  "images": ["assets/img_001.png", "assets/img_002.png"],
-  "music": "assets/bg_music_20260407.mp3",
-  "skipped": ["img_003.png (already exists)"],
-  "cost_saved": 1
+  "video": "assets/hook_video_topic_20260407.mp4",
+  "images": ["assets/img_topic_001.png", "assets/img_topic_002.png"],
+  "music": "assets/bg_music_topic_20260407.mp3",
+  "skipped": ["music (already exists)"],
+  "generated": ["视频", "2 images"],
+  "cost_saved": 1,
+  "summary": "生成 3 项，跳过 1 项（节省 API 调用）"
 }
 ```
 
 **FinOps Action:**
 1. Show which assets were generated vs skipped
-2. Report: "生成 2 个新资源，跳过 1 个已有资源"
+2. Report cost_saved count
 3. Ask: "素材已生成，要继续合成吗？"
 
 ---
@@ -217,19 +213,15 @@ clawreel assets \
 
 ```bash
 clawreel compose \
-  --tts assets/tts_xxx.mp3 \
-  --images assets/img_001.png assets/img_002.png \
-  --music assets/bg_music_xxx.mp3 \
-  --hook assets/hook_video_xxx.mp4
+  --tts assets/tts_topic_20260407.mp3 \
+  --images assets/img_topic_001.png assets/img_topic_002.png \
+  --music assets/bg_music_topic_20260407.mp3 \
+  --hook assets/hook_video_topic_20260407.mp4
 ```
 
 **Output:**
 ```json
-{
-  "path": "output/composed_20260407_123456.mp4",
-  "duration": "60s",
-  "cost": 0
-}
+{"path": "output/composed_topic_20260407.mp4"}
 ```
 
 ---
@@ -238,9 +230,11 @@ clawreel compose \
 
 ```bash
 clawreel post \
-  --video output/composed_xxx.mp4 \
+  --video output/composed_topic_20260407.mp4 \
   --title "Your video title"
 ```
+
+Adds subtitles (Whisper), AIGC watermark if configured in config.yaml.
 
 ---
 
@@ -248,7 +242,7 @@ clawreel post \
 
 ```bash
 clawreel publish \
-  --video output/final_xxx.mp4 \
+  --video output/final_topic_20260407.mp4 \
   --title "Your title" \
   --platforms xiaohongshu douyin
 ```
@@ -273,8 +267,8 @@ clawreel check --topic "AI未来趋势"
 # Output shows exactly what's missing
 {
   "existing": {
-    "tts": "assets/tts_xxx.mp3",
-    "images": ["assets/img_001.png"],
+    "tts": "assets/tts_ai未来趋势_20260407.mp3",
+    "images": ["assets/img_ai未来趋势_001.png"],
     "music": null,
     "video": null
   },
@@ -282,8 +276,13 @@ clawreel check --topic "AI未来趋势"
   "recommendation": "generate_missing"
 }
 
-# Only generate the missing ones
-clawreel assets --hook-prompt "..." --music-prompt "..."
+# Only generate the missing ones (use --skip-existing to avoid regen images)
+clawreel assets \
+  --hook-prompt "..." \
+  --image-prompt "..." \
+  --music-prompt "..." \
+  --topic "AI未来趋势" \
+  --skip-existing
 ```
 
 ### Cost-Saving Tips
@@ -311,69 +310,43 @@ clawreel assets --hook-prompt "..." --music-prompt "..."
 
 ## Complete FinOps Workflow Example
 
-**User says:** "帮我做一个关于AI未来趋势的短视频"
-
-**Agent execution:**
+**User:** "帮我做一个关于AI未来趋势的短视频"
 
 ```bash
-# Step 0: ALWAYS check first (zero cost)
+# Phase 0: Check (always first)
 clawreel check --topic "AI未来趋势"
+# Ask user: "预计成本 ¥1.5，要开始吗？" → [User confirms]
 
-# Output:
-# {
-#   "existing": {},
-#   "recommendation": "generate_all",
-#   "cost_estimate": "¥1.5"
-# }
+# Phase 1-2: Script + TTS
+clawreel script --topic "AI未来趋势"
+# Ask user: "满意吗？" → [User approves]
+clawreel tts --text "大家好..." --provider edge
 
-# Ask user
-# "当前项目没有资源，预计成本 ¥1.5。要开始生成吗？"
-# [User confirms]
-
-# Phase 1: Generate script (only if needed)
-clawreel script --topic "AI未来10年趋势"
-
-# [User approves]
-
-# Phase 2: Generate TTS (only if needed)
-clawreel tts --text "大家好，今天聊聊AI..."
-
-# Phase 3: Generate assets (only if needed)
+# Phase 3: Assets (FinOps: only generate missing)
 clawreel assets \
   --hook-prompt "未来科技城市" \
   --image-prompt "AI科技概念图" \
-  --count 3
+  --count 3 --topic "AI未来趋势" --skip-existing
+# Ask user: "要继续合成吗？" → [User approves]
 
-# [User approves]
-
-# Phase 4-6: Compose, Post, Publish
-# ...
+# Phase 4-6: Compose → Post → Publish
+clawreel compose --tts ... --images ... --music ... --hook ...
+clawreel post --video output/composed_ai未来趋势.mp4 --title "..."
+# Ask user: "要发布到抖音和小红书吗？" → [User confirms]
+clawreel publish --video output/final_ai未来趋势.mp4 \
+  --title "..." --platforms xiaohongshu douyin
 ```
 
 ### When User Returns for Same Topic
 
 ```bash
-# Step 0: Check what exists
 clawreel check --topic "AI未来趋势"
-
-# Output:
-# {
-#   "existing": {
-#     "script": "assets/script_xxx.json",
-#     "tts": "assets/tts_xxx.mp3",
-#     "images": ["assets/img_001.png", "assets/img_002.png", "assets/img_003.png"],
-#     "music": "assets/music_xxx.mp3"
-#   },
-#   "recommendation": "use_existing"
-# }
-
-# Ask user
-# "发现已有资源：1个脚本、1个配音、3张图片、1段音乐"
-# "要复用现有资源直接合成吗？（预计成本 ¥0）"
-# [User confirms]
-
-# Skip to composition
-clawreel compose --tts assets/tts_xxx.mp3 ...
+# recommendation: "use_existing" → Ask: "发现已有资源，要复用吗？（预计 ¥0）"
+# Skip to Phase 4
+clawreel compose --tts assets/tts_ai未来趋势_20260407.mp3 \
+  --images assets/img_ai未来趋势_001.png assets/img_ai未来趋势_002.png \
+  --music assets/bg_music_ai未来趋势_20260407.mp3 \
+  --hook assets/hook_video_ai未来趋势_20260407.mp4
 ```
 
 ---
@@ -417,32 +390,40 @@ If only some assets were generated:
 # Check what we have
 clawreel check --topic "topic"
 
-# Generate only missing
-clawreel assets --hook-prompt "..." --music-prompt "..."
+# Generate only missing (images already exist, only video + music needed)
+clawreel assets --hook-prompt "..." --music-prompt "..." --topic "topic" --skip-existing
 ```
 
 ---
 
 ## Configuration File (config.yaml)
 
+> ⚠️ 以下为实际生效的模型名称，与 MiniMax 官方 API 对应。
+
 ```yaml
 minimax:
   api_key: "${MINIMAX_API_KEY}"
   models:
-    t2v: "MiniMax-Hailuo-02"
-    i2v: "MiniMax-Hailuo-2.3-Fast"
+    t2v: "MiniMax-Hailuo-2.3"      # 视频 T2V（768P）
+    i2v: "MiniMax-Hailuo-2.3-Fast" # 视频 I2V 加速版
     image: "image-01"
     tts: "speech-2.8-hd"
-    music: "music-2.5+"
+    music: "music-2.5"
 
 tts:
-  active_provider: "edge"  # Use edge for cost saving
+  active_provider: "edge"  # edge 免费，minimax 付费高品质
   providers:
     minimax:
       voice_id: "female-shaonv"
       speed: 1.0
     edge:
       voice_id: "zh-CN-XiaoxiaoNeural"
+
+video:
+  duration_default: 6       # 秒（范围 3-30）
+
+music:
+  duration_default: 60      # 秒（范围 15-300）
 ```
 
 ---
