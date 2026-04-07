@@ -77,31 +77,38 @@ curl -fsSL https://raw.githubusercontent.com/hrygo/clawreel/main/install.sh | ba
 ### 语义对齐流水线
 
 ```bash
-# Phase 0: 资源检查
+# Phase 0: 资源检查（零成本）
 clawreel check --topic "AI未来趋势"
 
 # Phase 1: 生成脚本（输出含 sentences）
 clawreel script --topic "AI未来趋势"
 
 # Phase 2: TTS + 语义对齐 → segments.json
-clawreel align --text "你有没有想过，未来AI会超越人类？| 就在昨天，一件事震惊了所有人。" \
-  --output segments.json --split-long
+clawreel align \
+  --text "你有没有想过，未来AI会超越人类？| 就在昨天，一件事震惊了所有人。" \
+  --script assets/script_AI未来趋势_20260408.json \
+  --output assets/segments_AI未来趋势_20260408.json \
+  --split-long
 
 # Phase 3: 按 segments 批量生成图片（每句一张）
-clawreel assets --segments segments.json --max-concurrent 3
+clawreel assets --segments assets/segments_AI未来趋势_20260408.json --max-concurrent 3
 
-# Phase 4: 精确时长合成
+# Phase 4: 精确时长合成（含片头视频）
 clawreel compose \
   --tts assets/tts_output.mp3 \
-  --segments segments.json \
+  --segments assets/segments_AI未来趋势_20260408.json \
   --music assets/bg_music.mp3 \
   --transition fade
 
-# Phase 5: 后期处理
+# Phase 5: 后期处理（字幕 + AIGC）
 clawreel post --video output/composed.mp4 --title "AI觉醒"
 
-# 字幕烧录（已有视频的场景）
-clawreel burn-subs -v output/final.mp4
+# Phase 6: 多平台发布
+clawreel publish --video output/final.mp4 --title "AI觉醒" --platforms douyin xiaohongshu
+
+# 辅助命令（可选）
+clawreel music --prompt "轻快背景音乐" --duration 60
+clawreel burn-subs --video output/composed.mp4 --model medium
 ```
 
 ### AI 模型支持

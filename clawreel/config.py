@@ -64,7 +64,7 @@ VIDEO_MODEL_FALLBACKS = [
 ]
 MODEL_IMAGE = "image-01"
 MODEL_TTS = "speech-2.8-hd"
-MODEL_MUSIC = "music-2.5+"
+MODEL_MUSIC = "music-2.5"
 
 # ── 配置文件加载 ─────────────────────────────────────────────────────────────
 import yaml

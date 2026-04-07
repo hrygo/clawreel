@@ -1,17 +1,20 @@
 #!/usr/bin/env python3
-"""ClawReel CLI — 语义对齐流水线。
+"""ClawReel CLI — AI 短视频语义对齐流水线。
 
-命令树：
-  check      资源扫描
-  script     脚本生成（输出含 sentences）
-  tts        TTS（返回 word_timestamps）
-  align      文本+TTS → segments JSON（独立调试命令）
-  assets     图片生成（由 segments 驱动）
-  music      背景音乐生成
-  compose    合成（compose_sequential，无 dual-path）
-  post       后期处理（字幕、AIGC）
-  burn-subs  Whisper 字幕提取 + FFmpeg 烧录
-  publish    多平台发布
+命令分类：
+  【主流程命令 - 对应 SOP 7 阶段】
+    check      Phase 0: 资源扫描 + 成本估算
+    script     Phase 1: 脚本生成（输出含 sentences）
+    align      Phase 2: TTS + 语义对齐 → segments JSON
+    assets     Phase 3: 图片生成（由 segments 驱动）
+    compose    Phase 4: 视频合成（T2V/I2V 片头 + FFmpeg 转场）
+    post       Phase 5: 后期处理（字幕、AIGC 水印）
+    publish    Phase 6: 多平台发布
+
+  【辅助/调试命令】
+    tts        独立 TTS 测试（非流程命令，返回 word_timestamps）
+    music      背景音乐生成（可在任意阶段使用）
+    burn-subs  Whisper 字幕提取 + FFmpeg 烧录（独立工具）
 """
 import argparse
 import asyncio
@@ -322,50 +325,69 @@ def main():
     parser = argparse.ArgumentParser(
         description="ClawReel — AI 短视频语义对齐流水线",
         formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+示例：
+  # 完整流程
+  clawreel check --topic "AI觉醒"
+  clawreel script --topic "AI觉醒"
+  clawreel align --text "脚本内容" --script assets/script_xxx.json --output assets/segments_xxx.json
+  clawreel assets --segments assets/segments_xxx.json
+  clawreel compose --tts assets/tts_xxx.mp3 --segments assets/segments_xxx.json --music assets/bg_music.mp3
+  clawreel post --video output/composed.mp4 --title "AI觉醒"
+  clawreel publish --video output/final.mp4 --title "AI觉醒" --platforms douyin xiaohongshu
+
+  # 辅助命令
+  clawreel music --prompt "轻快背景音乐" --duration 60
+  clawreel burn-subs --video output/composed.mp4 --model medium
+        """,
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    # check
-    p = subparsers.add_parser("check", help="[阶段0] 扫描已有资源")
+    # ─────────────────────────────────────────────────────────────────────────────
+    # 主流程命令（对应 SOP 7 阶段）
+    # ─────────────────────────────────────────────────────────────────────────────
+
+    # Phase 0: check
+    p = subparsers.add_parser("check", help="[Phase 0] 扫描已有资源 + 成本估算")
     p.add_argument("--topic", "-t", help="视频主题（用于过滤文件名）")
     p.add_argument("--assets-dir", default="assets", help="资源目录（默认 assets）")
 
-    # script
-    p = subparsers.add_parser("script", help="[阶段0] 生成口播脚本")
+    # Phase 1: script
+    p = subparsers.add_parser("script", help="[Phase 1] 生成口播脚本")
     p.add_argument("--topic", "-t", required=True, help="视频主题")
 
-    # tts
-    p = subparsers.add_parser("tts", help="[阶段1] TTS 生成")
-    p.add_argument("--text", required=True, help="配音文本")
-    p.add_argument("--voice", default=None, help="音色 ID")
-    p.add_argument("--provider", default="edge", choices=["edge", "minimax"])
-
-    # align
-    p = subparsers.add_parser("align", help="[调试] 文本+TTS → segments JSON")
+    # Phase 2: align
+    p = subparsers.add_parser("align", help="[Phase 2] TTS + 语义对齐 → segments JSON")
     p.add_argument("--text", required=True, help="配音文本")
     p.add_argument("--voice", default="zh-CN-XiaoxiaoNeural", help="音色 ID")
     p.add_argument("--split-long", action="store_true", help="自动拆分 >5s 长段")
     p.add_argument("--output", "-o", default=None, help="输出路径")
+    p.add_argument("--script", default=None,
+                   help="脚本 JSON 文件路径（自动读取其中的 image_prompts 字段）")
     p.add_argument("--image-prompts", default=None,
-                   help="LLM 预生成的配图提示词 JSON 数组（与 sentences 对应）")
+                   help="LLM 预生成的配图提示词 JSON 数组（与 sentences 对应，已被 --script 取代）")
 
-    # assets
-    p = subparsers.add_parser("assets", help="[阶段2] 图片生成")
+    # Phase 3: assets
+    p = subparsers.add_parser("assets", help="[Phase 3] 图片生成")
     p.add_argument("--segments", "-s", required=True, metavar="PATH",
                    help="segments JSON 文件")
     p.add_argument("--max-concurrent", type=int, default=3)
 
-    # compose
-    p = subparsers.add_parser("compose", help="[阶段3] 音视频合成")
+    # Phase 4: compose
+    p = subparsers.add_parser("compose", help="[Phase 4] 视频合成（T2V/I2V 片头 + FFmpeg 转场）")
     p.add_argument("--tts", required=True, metavar="PATH")
     p.add_argument("--segments", "-s", required=True, metavar="PATH")
     p.add_argument("--music", required=True, metavar="PATH")
     p.add_argument("--output", "-o", default=None, metavar="PATH")
     p.add_argument("--transition", default="fade",
                    choices=["fade", "slide_left", "slide_right", "zoom", "none"])
+    p.add_argument("--hook-prompt", default=None,
+                   help="片头视频提示词（I2V/T2V），不提供则从 segments JSON 读取")
+    p.add_argument("--hook-duration", type=int, default=6,
+                   help="片头时长（秒），默认 6s")
 
-    # post
-    p = subparsers.add_parser("post", help="[阶段4] 后期处理")
+    # Phase 5: post
+    p = subparsers.add_parser("post", help="[Phase 5] 后期处理（字幕 + AIGC）")
     p.add_argument("--video", required=True)
     p.add_argument("--title", required=True)
     p.add_argument("--srt", default=None)
@@ -374,8 +396,35 @@ def main():
                    choices=["tiny", "base", "small", "medium", "large"])
     p.add_argument("--subtitle-language", default="auto")
 
-    # burn-subs
-    p = subparsers.add_parser("burn-subs", help="Whisper 字幕提取 + FFmpeg 烧录")
+    # Phase 6: publish
+    p = subparsers.add_parser("publish", help="[Phase 6] 多平台发布")
+    p.add_argument("--video", required=True)
+    p.add_argument("--title", required=True)
+    p.add_argument("--platforms", nargs="+",
+                   default=["xiaohongshu", "douyin"],
+                   choices=["xiaohongshu", "douyin", "bilibili"])
+
+    # ─────────────────────────────────────────────────────────────────────────────
+    # 辅助/调试命令
+    # ─────────────────────────────────────────────────────────────────────────────
+
+    # tts - 独立 TTS 测试
+    p = subparsers.add_parser("tts", help="[辅助] 独立 TTS 测试（非流程命令）")
+    p.add_argument("--text", required=True, help="配音文本")
+    p.add_argument("--voice", default=None, help="音色 ID")
+    p.add_argument("--provider", default="edge", choices=["edge", "minimax"])
+
+    # music - 背景音乐生成
+    p = subparsers.add_parser("music", help="[辅助] 背景音乐生成")
+    p.add_argument("--prompt", default="轻快的背景音乐，适合短视频", help="音乐风格描述")
+    p.add_argument("--duration", type=int, default=60, help="时长（秒），默认60")
+    p.add_argument("--instrumental", action="store_true", default=True,
+                   help="纯器乐（默认开）")
+    p.add_argument("--output", "-o", type=Path, default=None, help="输出路径（默认 assets/bg_music_<topic>.mp3）")
+    p.add_argument("--topic", default=None, help="视频主题（用于默认文件名）")
+
+    # burn-subs - 字幕提取 + 烧录
+    p = subparsers.add_parser("burn-subs", help="[辅助] Whisper 字幕提取 + FFmpeg 烧录")
     p.add_argument("--video", "-v", required=True)
     p.add_argument("--output", "-o", default=None)
     p.add_argument("--srt", default=None)
@@ -383,23 +432,6 @@ def main():
                    choices=["tiny", "base", "small", "medium", "large"])
     p.add_argument("--language", default="auto")
     p.add_argument("--word-timestamps", action="store_true")
-
-    # publish
-    p = subparsers.add_parser("publish", help="[阶段5] 多平台发布")
-    p.add_argument("--video", required=True)
-    p.add_argument("--title", required=True)
-    p.add_argument("--platforms", nargs="+",
-                   default=["xiaohongshu", "douyin"],
-                   choices=["xiaohongshu", "douyin", "bilibili"])
-
-    # music
-    p = subparsers.add_parser("music", help="[阶段2c] 背景音乐生成")
-    p.add_argument("--prompt", default="轻快的背景音乐，适合短视频", help="音乐风格描述")
-    p.add_argument("--duration", type=int, default=60, help="时长（秒），默认60")
-    p.add_argument("--instrumental", action="store_true", default=True,
-                   help="纯器乐（默认开）")
-    p.add_argument("--output", "-o", type=Path, default=None, help="输出路径（默认 assets/bg_music_<topic>.mp3）")
-    p.add_argument("--topic", default=None, help="视频主题（用于默认文件名）")
 
     args = parser.parse_args()
 
