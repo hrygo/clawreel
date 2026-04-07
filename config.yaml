@@ -1,0 +1,52 @@
+# MiniMax Content Pipeline Configuration
+
+minimax:
+  api_key: "${MINIMAX_API_KEY}"
+  # API 路径统一为 /v1（config.py 硬编码，无需在此声明）
+
+  # API 模型名称（必须带 MiniMax- 前缀）
+  models:
+    t2v: "MiniMax-Hailuo-02"      # 视频 T2V，推荐 24-30fps
+    i2v: "MiniMax-Hailuo-2.3-Fast" # 视频 I2V 加速版
+    image: "image-01"
+    tts: "speech-2.8-hd"          # 最新 TTS
+    music: "music-2.5+"           # music-2.5 不支持纯音乐
+
+tts:
+  provider: "minimax"              # "minimax" 或 "edge"
+  voice: "zh-CN-XiaoxiaoNeural"    # Edge TTS 默认音色，MiniMax 默认仍受 src/tts_voice.py 控制
+
+audio:
+  sample_rate: 44100             # ❌ 不用 32000
+  bit_rate: 128000                # 128kbps
+  format: "mp3"
+
+video:
+  width: 1080
+  height: 1920
+  fps: 25  # MiniMax Hailuo 推荐 25fps
+  bitrate: "6M"                   # 6-8Mbps
+  duration_default: 10            # 秒，最佳性价比
+
+cover:
+  resolution: [720, 1280]
+  visible_region: [1080, 1464]    # 顶部 456px 被抖音标题遮挡
+  output_region: [1080, 1464]    # 关键内容区域
+
+paths:
+  assets: "assets"
+  output: "output"
+
+# 发布平台
+publish:
+  xiaohongshu:
+    enabled: false
+    cookies: "${XHS_COOKIES}"
+  douyin:
+    enabled: false
+    cookies: "${DOUYIN_COOKIES}"
+
+# AIGC 标识
+aigc:
+  label: "内容由AI生成"
+  position: "bottom-right"

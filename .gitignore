@@ -1,0 +1,28 @@
+# ── Python ──────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+ENV/
+env/
+
+# ── Project Specific ────────────────────────────────────────────────────────
+# Generated assets
+assets/
+# Pipeline final outputs
+output/
+
+# ── Configuration & Secrets ──────────────────────────────────────────────────
+.env
+# config.local.yaml  # Uncomment if you use local overrides
+
+# ── OS / IDE ────────────────────────────────────────────────────────────────
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
