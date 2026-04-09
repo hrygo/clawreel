@@ -215,16 +215,17 @@ async def compose_sequential(
     logger.info("✅ 视频合成完成: %s", output_path)
 
     # ── Step 6: 清理中间文件 ──────────────────────────────────────────────
-    for d in [body_dir, image_dir]:
-        for f in d.glob("*"):
-            try:
-                f.unlink()
-            except OSError:
-                pass
+    # ⚠️ 只清理 compose 自身产生的临时文件（body_clips、body_xfade）
+    # ⚠️ 绝不清理 assets/images/（Phase 3 生成的图片，应保留复用）
+    for f in body_dir.glob("*"):
         try:
-            d.rmdir()
+            f.unlink()
         except OSError:
             pass
+    try:
+        body_dir.rmdir()
+    except OSError:
+        pass
 
     for pattern in [
         "body_xfade.mp4", "music_extended.mp3",

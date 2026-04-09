@@ -1,24 +1,28 @@
 """阶段4：后期处理 - 字幕、封面、AIGC标识.
 
-字幕: Whisper 优先提取，SRT 透传次之，FFprobe 兜底。
+字幕: TTS SRT 优先 → 同名 SRT → Whisper 兜底 → FFprobe 兜底。
 封面: image-01 生成 3 张，关键内容偏上
 AIGC标识: 添加"内容由AI生成"声明
 """
+import json
 import logging
 import shutil
 import subprocess
 from pathlib import Path
 
 from .config import COVER_FULL, COVER_VISIBLE, FFMPEG_VIDEO_OPTS, OUTPUT_DIR, AIGC_CONFIG
-from .utils import ensure_parent_dir, run_ffmpeg as _run_ffmpeg, get_media_duration
+from .utils import ensure_parent_dir, format_srt_timestamp, run_ffmpeg as _run_ffmpeg, get_media_duration
 
 logger = logging.getLogger(__name__)
 
 
 # ── 字幕提取优先级 ─────────────────────────────────────────────────────────────
-# 1. Whisper（高质量，模型需已安装）
-# 2. FFprobe 硬字幕流（视频内嵌字幕）
-# 3. 无字幕（跳过字幕处理）
+# 1. 显式传入的 SRT 路径
+# 2. TTS/align 生成的 SRT（从 segments JSON 中读取 srt 字段）
+# 3. 同名 SRT 文件（与视频同目录）
+# 4. Whisper 兜底（高质量但需 GPU/大量 RAM）
+# 5. FFprobe 硬字幕流
+# 6. 无字幕（跳过）
 
 
 def _extract_subtitles_whisper(video_path: Path, model: str = "medium", language: str = "auto") -> Path | None:
@@ -168,6 +172,7 @@ async def post_process(
     add_aigc: bool = True,
     output_path: Path | None = None,
     srt_path: Path | None = None,
+    segments_path: Path | None = None,
     subtitle_model: str = "medium",
     subtitle_language: str = "auto",
 ) -> Path:
@@ -180,6 +185,7 @@ async def post_process(
         add_aigc: 是否添加 AIGC 标识
         output_path: 输出路径（默认 output/final_原名.mp4）
         srt_path: 已有 SRT 路径（跳过提取）
+        segments_path: segments JSON 路径（从中读取 TTS 生成的 SRT）
         subtitle_model: Whisper 模型大小（default/medium/large/small/tiny）
         subtitle_language: 字幕语言代码（auto/zh/en 等）
 
@@ -195,23 +201,63 @@ async def post_process(
 
     # 1. 字幕处理
     if add_subtitles:
-        # 优先级：显式传入 > 同 stem SRT > Whisper 提取 > FFprobe 兜底
-        resolved_srt: Path | None = srt_path
+        # 优先级（瀑布式逐级降级）：
+        # 显式 SRT > TTS SRT（segments JSON）> 同名 SRT > Whisper 兜底 > FFprobe
+        resolved_srt: Path | None = None
 
-        if resolved_srt is None or not resolved_srt.exists():
+        # 级别 1：显式传入的 SRT
+        if srt_path and srt_path.exists():
+            resolved_srt = srt_path
+            logger.info("✅ 使用显式传入的字幕: %s", resolved_srt)
+
+        # 级别 2：从 segments JSON 生成 SRT（基于 align 精确时间戳）
+        if resolved_srt is None and segments_path and segments_path.exists():
+            try:
+                seg_data = json.loads(segments_path.read_text(encoding="utf-8"))
+                segments = seg_data.get("segments", [])
+                if segments and all(s.get("start_sec") is not None and s.get("text") for s in segments):
+                    # 从 segments 直接生成 SRT（精确时间戳，不依赖外部 SRT 文件）
+                    srt_lines: list[str] = []
+                    for idx, seg in enumerate(segments, start=1):
+                        start = format_srt_timestamp(seg["start_sec"])
+                        end = format_srt_timestamp(seg["end_sec"])
+                        text = seg["text"].strip().lstrip("| ")
+                        srt_lines.append(f"{idx}")
+                        srt_lines.append(f"{start} --> {end}")
+                        srt_lines.append(text)
+                        srt_lines.append("")
+                    generated_srt = video_path.with_suffix(".segments.srt")
+                    generated_srt.write_text("\n".join(srt_lines), encoding="utf-8")
+                    resolved_srt = generated_srt
+                    logger.info("✅ 从 segments JSON 生成字幕（%d 条）: %s", len(segments), resolved_srt)
+                else:
+                    # segments 没有时间戳数据，尝试读取 srt 字段
+                    tts_srt = seg_data.get("srt")
+                    if tts_srt and Path(tts_srt).exists():
+                        resolved_srt = Path(tts_srt)
+                        logger.info("✅ 使用 TTS 生成的字幕: %s", resolved_srt)
+            except Exception as e:
+                logger.debug("从 segments JSON 生成/读取 SRT 失败: %s", e)
+
+        # 级别 3：同名 SRT
+        if resolved_srt is None:
             candidate = video_path.with_suffix(".srt")
             if candidate.exists():
                 resolved_srt = candidate
-            else:
-                # Whisper 优先（高质量）
-                resolved_srt = _extract_subtitles_whisper(
-                    video_path,
-                    model=subtitle_model,
-                    language=subtitle_language,
-                )
-                if resolved_srt is None:
-                    # FFprobe 兜底（仅提取内嵌字幕）
-                    resolved_srt = _extract_subtitles_ffprobe(video_path)
+                logger.info("✅ 使用同名字幕文件: %s", resolved_srt)
+
+        # 级别 4：Whisper 兜底
+        if resolved_srt is None:
+            logger.info("🔊 无可用 SRT，尝试 Whisper 提取（fallback）…")
+            resolved_srt = _extract_subtitles_whisper(
+                video_path,
+                model=subtitle_model,
+                language=subtitle_language,
+            )
+
+        # 级别 5：FFprobe 兜底
+        if resolved_srt is None:
+            resolved_srt = _extract_subtitles_ffprobe(video_path)
 
         if resolved_srt and resolved_srt.exists():
             try:
@@ -240,12 +286,15 @@ async def post_process(
         current = output_path
 
     # 清理字幕中间文件（如果存在）
-    subtitled = video_path.with_suffix(".subtitled.mp4")
-    if subtitled.exists():
-        try:
-            subtitled.unlink()
-        except OSError:
-            pass
+    for tmp_file in [
+        video_path.with_suffix(".subtitled.mp4"),
+        video_path.parent / (video_path.stem + ".segments.srt"),
+    ]:
+        if tmp_file.exists():
+            try:
+                tmp_file.unlink()
+            except OSError:
+                pass
 
     logger.info("✅ 后期处理完成: %s", output_path)
     return output_path

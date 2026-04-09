@@ -316,11 +316,13 @@ async def cmd_compose(args):
 async def cmd_post(args):
     """后期处理。"""
     srt_path = Path(args.srt) if getattr(args, "srt", None) else None
+    segments_path = Path(args.segments) if getattr(args, "segments", None) else None
     path = await post_process(
         Path(args.video),
         args.title,
         add_subtitles=not args.no_subtitles,
         srt_path=srt_path,
+        segments_path=segments_path,
         subtitle_model=getattr(args, "subtitle_model", "medium"),
         subtitle_language=getattr(args, "subtitle_language", "auto"),
     )
@@ -450,6 +452,8 @@ def main():
     p.add_argument("--subtitle-model", default="medium",
                    choices=["tiny", "base", "small", "medium", "large"])
     p.add_argument("--subtitle-language", default="auto")
+    p.add_argument("--segments", default=None,
+                   help="segments JSON 路径（用于读取 TTS 生成的字幕）")
 
     # Phase 6: publish
     p = subparsers.add_parser("publish", help="[Phase 6] 多平台发布")
