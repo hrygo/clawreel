@@ -160,7 +160,7 @@ clawreel compose \
 ## Phase 5: 后期处理
 
 ```bash
-clawreel post --video output/composed.mp4 --title "AI觉醒"
+clawreel post --video output/composed.mp4 --title "AI觉醒" --font-size 16
 # Whisper 字幕提取 + FFmpeg 烧录 + AIGC 水印
 ```
 
@@ -236,7 +236,7 @@ clawreel assets --segments PATH
 clawreel compose --tts PATH --segments PATH --music PATH
 
 # Phase 5: 后期处理（字幕 + AIGC）
-clawreel post --video PATH --title "标题"
+clawreel post --video PATH --title "标题" --font-size 16
 
 # Phase 6: 多平台发布
 clawreel publish --video PATH --platforms ...

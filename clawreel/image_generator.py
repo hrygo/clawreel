@@ -8,6 +8,7 @@ import hashlib
 import logging
 import time
 from pathlib import Path
+from typing import Optional, List, Dict, Any, Tuple, Union
 
 from .api_client import api_post, download_file
 from .config import ASSETS_DIR, MODEL_IMAGE
@@ -17,7 +18,7 @@ logger = logging.getLogger(__name__)
 _IMAGES_DIR = ASSETS_DIR / "images"
 
 
-async def _download_single(output_filename: str, i: int, img_url: str) -> Path | None:
+async def _download_single(output_filename: str, i: int, img_url: str) -> Optional[Path]:
     """下载单张图片，返回本地路径或 None。"""
     ext = "png" if ".png" in img_url.lower() else "jpg"
     fname = f"{output_filename}_{i}.{ext}"
@@ -33,9 +34,9 @@ async def _download_single(output_filename: str, i: int, img_url: str) -> Path |
 
 async def generate_image(
     prompt: str,
-    output_filename: str | None = None,
+    output_filename: Optional[str] = None,
     count: int = 1,
-) -> list[Path]:
+) -> List[Path]:
     """生成图片列表。
 
     Returns:
@@ -47,9 +48,9 @@ async def generate_image(
 
 async def generate_image_with_urls(
     prompt: str,
-    output_filename: str | None = None,
+    output_filename: Optional[str] = None,
     count: int = 1,
-) -> tuple[list[Path], list[str]]:
+) -> Tuple[List[Path], List[str]]:
     """生成图片，同时返回本地路径和 OSS URL（供 HITL 展示用）。
 
     Returns:
@@ -86,9 +87,9 @@ async def generate_image_with_urls(
 
 
 async def generate_segment_images(
-    segments: list[dict],
+    segments: List[Dict],
     max_concurrent: int = 3,
-) -> list[Path]:
+) -> List[Path]:
     """为语义段落列表批量生成图片。
 
     每段一张图，并发控制避免 API 限流。
@@ -115,9 +116,8 @@ async def generate_segment_images(
 
     semaphore = asyncio.Semaphore(max_concurrent)
 
-    async def generate_one(i: int, seg: dict) -> tuple[int, Path | None]:
+    async def generate_one(i: int, seg: Dict) -> Tuple[int, Optional[Path]]:
         async with semaphore:
-            img_path = _IMAGES_DIR / f"seg_{i:03d}.jpg"
             try:
                 paths = await generate_image(
                     prompt=seg["image_prompt"],
@@ -133,7 +133,7 @@ async def generate_segment_images(
     results = await asyncio.gather(*tasks, return_exceptions=True)
 
     # 按 index 排序还原顺序，同时计数有效结果
-    ordered: list[Path | None] = [None] * len(segments)
+    ordered: List[Optional[Path]] = [None] * len(segments)
     valid_count = 0
     for r in results:
         if isinstance(r, Exception):
@@ -151,7 +151,7 @@ async def generate_segment_images(
 async def generate_cover(
     title: str,
     count: int = 3,
-) -> list[Path]:
+) -> List[Path]:
     """生成封面图（关键内容必须放在下半部分）。"""
     safe_title = hashlib.md5(title.encode()).hexdigest()[:8]
     return await generate_image(

@@ -1,3 +1,4 @@
+from typing import Optional, List, Dict, Union, Any, Tuple
 """阶段4：后期处理 - 字幕、封面、AIGC标识.
 
 字幕: TTS SRT 优先 → 同名 SRT → Whisper 兜底 → FFprobe 兜底。
@@ -25,7 +26,7 @@ logger = logging.getLogger(__name__)
 # 6. 无字幕（跳过）
 
 
-def _extract_subtitles_whisper(video_path: Path, model: str = "medium", language: str = "auto") -> Path | None:
+def _extract_subtitles_whisper(video_path: Path, model: str = "medium", language: str = "auto") ->Optional[Path]:
     """用 Whisper 提取字幕，保存为 SRT.
 
     Returns:
@@ -37,7 +38,7 @@ def _extract_subtitles_whisper(video_path: Path, model: str = "medium", language
     return extract_subtitles(video_path, srt_path, model=model, language=language)
 
 
-def _extract_subtitles_ffprobe(video_path: Path) -> Path | None:
+def _extract_subtitles_ffprobe(video_path: Path) ->Optional[Path]:
     """用 FFmpeg 内置字幕提取（如果有硬字幕流）."""
     srt_path = video_path.with_suffix(".srt")
     try:
@@ -55,7 +56,7 @@ def _extract_subtitles_ffprobe(video_path: Path) -> Path | None:
     return None
 
 
-def _burn_subtitles(video_path: Path, srt_path: Path, output_path: Path) -> Path:
+def _burn_subtitles(video_path: Path, srt_path: Path, output_path: Path, font_size: int = 16) -> Path:
     """将 SRT 字幕烧录进视频。
 
     优先使用 ffmpeg-full 的 subtitles 滤镜（libass）烧录硬字幕；
@@ -79,7 +80,7 @@ def _burn_subtitles(video_path: Path, srt_path: Path, output_path: Path) -> Path
             "ffmpeg", "-y",
             "-i", video_abs,
             "-vf",
-            f"subtitles={srt_abs}:force_style='FontName={font_name},FontSize=22,"
+            f"subtitles={srt_abs}:force_style='FontName={font_name},FontSize={font_size},"
             f"PrimaryColour=&HFFFFFF&,OutlineColour=&H000000&,Outline=2'",
             *FFMPEG_VIDEO_OPTS,
             "-map", "0:v",          # 明确选择视频流（避免选错 AAC 流）
@@ -167,14 +168,15 @@ def _add_aigc_watermark(
 
 async def post_process(
     video_path: Path,
-    title: str | None = None,
+    title:Optional[str] = None,
     add_subtitles: bool = True,
     add_aigc: bool = True,
-    output_path: Path | None = None,
-    srt_path: Path | None = None,
-    segments_path: Path | None = None,
+    output_path:Optional[Path] = None,
+    srt_path:Optional[Path] = None,
+    segments_path:Optional[Path] = None,
     subtitle_model: str = "medium",
     subtitle_language: str = "auto",
+    font_size: int = 16,
 ) -> Path:
     """后期处理主流程.
 
@@ -188,6 +190,7 @@ async def post_process(
         segments_path: segments JSON 路径（从中读取 TTS 生成的 SRT）
         subtitle_model: Whisper 模型大小（default/medium/large/small/tiny）
         subtitle_language: 字幕语言代码（auto/zh/en 等）
+        font_size: 字幕字号大小（缺省 16）
 
     Returns:
         处理后的视频路径
@@ -203,7 +206,7 @@ async def post_process(
     if add_subtitles:
         # 优先级（瀑布式逐级降级）：
         # 显式 SRT > TTS SRT（segments JSON）> 同名 SRT > Whisper 兜底 > FFprobe
-        resolved_srt: Path | None = None
+        resolved_srt:Optional[Path] = None
 
         # 级别 1：显式传入的 SRT
         if srt_path and srt_path.exists():
@@ -217,7 +220,7 @@ async def post_process(
                 segments = seg_data.get("segments", [])
                 if segments and all(s.get("start_sec") is not None and s.get("text") for s in segments):
                     # 从 segments 直接生成 SRT（精确时间戳，不依赖外部 SRT 文件）
-                    srt_lines: list[str] = []
+                    srt_lines: List[str] = []
                     for idx, seg in enumerate(segments, start=1):
                         start = format_srt_timestamp(seg["start_sec"])
                         end = format_srt_timestamp(seg["end_sec"])
@@ -261,7 +264,7 @@ async def post_process(
 
         if resolved_srt and resolved_srt.exists():
             try:
-                current = _burn_subtitles(current, resolved_srt, current.with_suffix(".subtitled.mp4"))
+                current = _burn_subtitles(current, resolved_srt, current.with_suffix(".subtitled.mp4"), font_size=font_size)
             except Exception as e:
                 logger.error(f"❌ 字幕烧录失败: {e}")
         else:

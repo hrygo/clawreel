@@ -3,11 +3,12 @@
 所有 FFmpeg、文件操作、API 辅助函数集中于此。
 """
 import logging
+import os
 import re
 import subprocess
 import binascii
 from pathlib import Path
-from typing import Callable, Awaitable, TypeVar, TypedDict
+from typing import Optional, List, Dict, Union, Any, Tuple, Callable, Awaitable, TypeVar, TypedDict
 
 # 统一字符类：保留字母、数字、中文（整洁架构：只出现一次）
 CLEAN_CHAR_CLASS_RE = re.compile(r"[^\w\u4e00-\u9fff]+")
@@ -19,9 +20,26 @@ T = TypeVar("T")
 
 # ── FFmpeg 工具函数 ─────────────────────────────────────────────────────────
 
-def run_ffmpeg(cmd: list[str], check: bool = True) -> subprocess.CompletedProcess:
-    """执行 FFmpeg/FFprobe 命令。
+def _get_ffmpeg_path(exe: str) -> str:
+    """查找 ffmpeg/ffprobe 路径。"""
+    # 优先使用 PATH 中的
+    import shutil
+    p = shutil.which(exe)
+    if p:
+        return p
+    # 备选 Mac 常见路径
+    common = [f"/opt/homebrew/bin/{exe}", f"/usr/local/bin/{exe}"]
+    for c in common:
+        if os.path.exists(c):
+            return c
+    return exe  # 最终降级为原样
 
+def run_ffmpeg(cmd: List[str], check: bool = True) -> subprocess.CompletedProcess:
+    """执行 FFmpeg/FFprobe 命令。"""
+    if cmd and cmd[0] in ["ffmpeg", "ffprobe"]:
+        cmd[0] = _get_ffmpeg_path(cmd[0])
+
+    """
     FFmpeg 有时在成功完成时也返回非零退出码（如被 SIGPIPE/SIGTERM 信号杀死），
     所以这里采用双重策略：
     1. 检查 stderr 中是否有 FFmpeg 明确的错误特征
@@ -35,6 +53,7 @@ def run_ffmpeg(cmd: list[str], check: bool = True) -> subprocess.CompletedProces
         CompletedProcess 对象
     """
     logger.debug("CMD: %s", " ".join(cmd))
+    print(f"RUNNING: {' '.join(cmd)}")
     result = subprocess.run(cmd, capture_output=True, text=True, check=False)
     # FFmpeg 明确错误特征：[ERROR] 大写 / Error: 前缀 / cannot / no such
     stderr_lc = result.stderr or ""
@@ -43,8 +62,9 @@ def run_ffmpeg(cmd: list[str], check: bool = True) -> subprocess.CompletedProces
         or re.search(r"(?i)\berror:", stderr_lc)
         or re.search(r"\bcannot\b|\bno such\b", stderr_lc)
     )
-    has_error = result.returncode != 0 and has_ffmpeg_error
+    has_error = result.returncode != 0
     if has_error and check:
+        # 即使没有匹配到特定错误字符串，只要 returncode != 0 且 check=True 就报错
         raise subprocess.CalledProcessError(result.returncode, cmd, result.stdout, result.stderr)
     if result.stderr:
         logger.debug("CMD stderr: %s", result.stderr[:500])
@@ -67,6 +87,7 @@ def get_media_duration(path: Path) -> float:
         str(path),
     ]
     try:
+        print(f"DURATION CMD: {' '.join(cmd)}")
         result = run_ffmpeg(cmd)
         return float(result.stdout.strip())
     except (subprocess.CalledProcessError, FileNotFoundError, ValueError) as e:

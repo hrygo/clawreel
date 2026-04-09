@@ -4,7 +4,7 @@
 """
 import logging
 from pathlib import Path
-from typing import TypedDict
+from typing import Optional, List, Dict, Union, Any, Tuple, TypedDict
 
 logger = logging.getLogger(__name__)
 
@@ -13,8 +13,8 @@ class PublishResult(TypedDict):
     """发布结果."""
     platform: str
     success: bool
-    url: str | None
-    error: str | None
+    url:Optional[str]
+    error:Optional[str]
 
 
 async def publish_to_xiaohongshu(
@@ -79,9 +79,9 @@ _PUBLISHERS = {
 async def publish(
     video_path: Path,
     title: str,
-    platforms: list[str] | None = None,
-    cookies: dict[str, str] | None = None,
-) -> list[PublishResult]:
+    platforms:Optional[List[str]] = None,
+    cookies:Optional[Dict[str, str]] = None,
+) -> List[PublishResult]:
     """发布到多个平台.
 
     Args:
@@ -100,7 +100,7 @@ async def publish(
 
     logger.info("📤 开始发布到平台: %s", platforms)
 
-    results: list[PublishResult] = []
+    results: List[PublishResult] = []
     description = f"{title}\n\n内容由AI生成"
 
     for platform in platforms:

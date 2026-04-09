@@ -7,7 +7,7 @@ import asyncio
 import logging
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Any
+from typing import Optional, List, Dict, Union, Any, Tuple, Any
 
 from .utils import format_srt_timestamp
 
@@ -38,19 +38,19 @@ WHISPER_LANGUAGES = {
 
 
 # Whisper 模型缓存（进程级，避免每次调用重新加载 1.5GB 模型）
-_wmodel_cache: dict[str, Any] = {}
+_wmodel_cache: Dict[str, Any] = {}
 
 # ThreadPoolExecutor 缓存（避免每次异步调用重建线程池）
-_executor: ThreadPoolExecutor | None = None
+_executor:Optional[ThreadPoolExecutor] = None
 
 
 def extract_subtitles(
     video_path: Path,
-    output_srt: Path | None = None,
+    output_srt:Optional[Path] = None,
     model: str = "medium",
     language: str = "auto",
     word_timestamps: bool = False,
-) -> Path | None:
+) ->Optional[Path]:
     """用 Whisper 从视频中提取字幕，保存为 SRT 文件。
 
     Args:
@@ -109,7 +109,7 @@ def extract_subtitles(
         return None
 
 
-def _write_srt(segments: list[dict], output_path: Path) -> None:
+def _write_srt(segments: List[dict], output_path: Path) -> None:
     """将 Whisper 结果写入 SRT 文件。"""
     with open(output_path, "w", encoding="utf-8") as f:
         for i, seg in enumerate(segments, start=1):
@@ -125,10 +125,10 @@ def _write_srt(segments: list[dict], output_path: Path) -> None:
 
 async def extract_subtitles_async(
     video_path: Path,
-    output_srt: Path | None = None,
+    output_srt:Optional[Path] = None,
     model: str = "medium",
     language: str = "auto",
-) -> Path | None:
+) ->Optional[Path]:
     """异步版字幕提取（不阻塞事件循环）。
 
     Whisper inference 本身是 CPU/GPU bound，在独立线程执行以避免阻塞。

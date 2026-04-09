@@ -17,6 +17,7 @@ from pathlib import Path
 
 from .api_client import api_post, api_get, poll_async_task
 from .config import ASSETS_DIR, MODEL_T2V, VIDEO_MODEL_FALLBACKS, VIDEO_FPS
+from typing import Optional, List, Dict, Any, Union
 
 logger = logging.getLogger(__name__)
 
@@ -53,8 +54,8 @@ async def generate_video(
     prompt: str,
     type: str = "t2v",
     duration: int = 6,
-    input_image: str | None = None,
-    output_filename: str | None = None,
+    input_image: Optional[str] = None,
+    output_filename: Optional[str] = None,
 ) -> Path:
     """生成视频 — I2V 优先（用首帧），I2V 失败再降级 T2V。
 
@@ -72,9 +73,9 @@ async def generate_video(
     output_path = ASSETS_DIR / output_filename
 
     # MiniMax OSS URL 直连，无需上传；本地路径暂不支持
-    first_frame: str | None = input_image if input_image else None
+    first_frame:Optional[str] = input_image if input_image else None
 
-    last_error: Exception | None = None
+    last_error:Optional[Exception] = None
 
     for model in models_to_try:
         # ── 策略选择 ──────────────────────────────────────────────────────────
@@ -98,7 +99,7 @@ async def _try_i2v_then_t2v(
     duration: int,
     first_frame: str,
     output_path: Path,
-) -> Path | None:
+) ->Optional[Path]:
     """优先 I2V，失败后降级 T2V（有首帧时）。"""
     # ① 尝试 I2V（所有模型都支持）
     try:
@@ -134,7 +135,7 @@ async def _try_t2v(
     prompt: str,
     duration: int,
     output_path: Path,
-) -> Path | None:
+) ->Optional[Path]:
     """直接 T2V（无首帧时）。"""
     if model in _I2V_ONLY_MODELS:
         logger.info("  模型 %s 仅支持 I2V，无首帧，跳过", model)
@@ -166,7 +167,7 @@ async def _submit(
     model: str,
     prompt: str,
     duration: int,
-    first_frame: str | None,
+    first_frame: Optional[str],
 ) -> str:
     """提交视频生成任务，返回 task_id。"""
     payload: dict = {

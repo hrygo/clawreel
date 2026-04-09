@@ -1,3 +1,4 @@
+from typing import Optional, List, Dict, Union, Any, Tuple
 #!/usr/bin/env python3
 """ClawReel CLI — AI 短视频语义对齐流水线。
 
@@ -68,7 +69,7 @@ _DEFAULT_IMAGES = 9
 _DEFAULT_MUSIC_DURATION = 60  # 秒
 
 
-def _estimate_cost(found: dict, topic: str | None) -> dict:
+def _estimate_cost(found: dict, topic:Optional[str]) -> dict:
     """根据已有资源估算缺失资源的成本。"""
     has_script = bool(found.get("script"))
     has_tts = bool(found.get("tts"))
@@ -321,10 +322,12 @@ async def cmd_post(args):
         Path(args.video),
         args.title,
         add_subtitles=not args.no_subtitles,
+        output_path=Path(args.output) if getattr(args, "output", None) else None,
         srt_path=srt_path,
         segments_path=segments_path,
         subtitle_model=getattr(args, "subtitle_model", "medium"),
         subtitle_language=getattr(args, "subtitle_language", "auto"),
+        font_size=getattr(args, "font_size", 16),
     )
     print_json({"path": str(path)})
 
@@ -454,6 +457,8 @@ def main():
     p.add_argument("--subtitle-language", default="auto")
     p.add_argument("--segments", default=None,
                    help="segments JSON 路径（用于读取 TTS 生成的字幕）")
+    p.add_argument("--font-size", type=int, default=16, help="字幕字号大小")
+    p.add_argument("--output", "-o", default=None, help="输出文件路径")
 
     # Phase 6: publish
     p = subparsers.add_parser("publish", help="[Phase 6] 多平台发布")

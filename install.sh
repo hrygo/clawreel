@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# ClawReel One-Click Installer (Ver 3.0)
+# ClawReel One-Click Installer (Ver 4.0)
 # - Standalone mode: curl ... | bash  (auto-clones repo first)
 # - Post-clone mode: ./install.sh     (already inside repo)
 # Compatible with Bash 3.2+ (MacOS Default)
@@ -153,7 +153,7 @@ do_install() {
 
 # ── Entry ─────────────────────────────────────────────────────────────────────
 main() {
-    echo -e "${CYAN}[clawreel]${NC} 欢迎使用 AI 短视频自动化流水线 v3.0"
+    echo -e "${CYAN}[clawreel]${NC} 欢迎使用 AI 短视频自动化流水线 v4.0"
     echo ""
 
     if inside_repo; then

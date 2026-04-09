@@ -7,10 +7,10 @@
 策略: Edge TTS 优先，指数回避重试 3 次；全部失败则降级 MiniMax TTS
 （MiniMax 无逐词时间戳，SRT 使用估算时长近似分割）。
 """
-import asyncio
 import logging
+import asyncio
 from pathlib import Path
-from typing import TypedDict
+from typing import TypedDict, Optional, List, Dict, Any, Tuple, Union
 
 import edge_tts
 
@@ -33,18 +33,19 @@ logger = logging.getLogger(__name__)
 class TTSResult(TypedDict):
     """TTS 合成的完整结果（含词级时间轴）。"""
     audio_path: Path
-    srt_path: Path | None
-    word_timestamps: list[WordTimestamp]
+    srt_path: Optional[Path]
+    word_timestamps: List[WordTimestamp]
+    duration_sec: float
 
 
 # ── 公开 API ────────────────────────────────────────────────────────────────
 
 async def generate_voice(
     text: str,
-    output_path: Path | None = None,
-    voice_id: str | None = None,
-    provider: str | None = None,
-    srt_path: Path | None = None,
+    output_path: Optional[Path] = None,
+    voice_id: Optional[str] = None,
+    provider: Optional[str] = None,
+    srt_path: Optional[Path] = None,
 ) -> TTSResult:
     """生成 TTS 音频。
 
@@ -122,7 +123,7 @@ async def _generate_edge_voice(
 
     submaker = edge_tts.SubMaker()
     communicate = edge_tts.Communicate(text, voice_id, boundary="WordBoundary")
-    word_chunks: list[dict] = []
+    word_chunks: List[dict] = []
 
     # 单次 stream() 循环同时收集音频 bytes 和 word boundary 元数据
     # 异常时主动关闭 connector，防止 aiohttp session/connector 泄漏
@@ -140,7 +141,7 @@ async def _generate_edge_voice(
         raise
 
     # 逐词时间戳：从 WordBoundary chunk 直接提取（edge_tts 5.x 无 to_object_list）
-    word_timestamps: list[WordTimestamp] = []
+    word_timestamps: List[WordTimestamp] = []
     for w in word_chunks:
         offset_ns = int(w.get("offset", 0))
         duration_ns = int(w.get("duration", 0))
@@ -154,7 +155,7 @@ async def _generate_edge_voice(
         )
 
     # 句级 SRT（每句一行，而非逐词）
-    srt_out: Path | None = None
+    srt_out:Optional[Path] = None
     if word_timestamps:
         try:
             segments = align_segments(text, word_timestamps)
@@ -185,9 +186,9 @@ async def _generate_edge_voice(
     )
 
 
-def _write_sentence_srt(segments: list[dict]) -> str:
+def _write_sentence_srt(segments: List[dict]) -> str:
     """将句级 segments 写入 SRT 文件。"""
-    lines: list[str] = []
+    lines: List[str] = []
     for i, seg in enumerate(segments, start=1):
         start = format_srt_timestamp(seg["start_sec"])
         end = format_srt_timestamp(seg["end_sec"])

@@ -1,3 +1,4 @@
+from typing import Optional, List, Dict, Union, Any, Tuple
 """配置加载模块 — 单一职责：只负责配置加载和常量定义。
 
 API 调用逻辑已迁移到 api_client.py。

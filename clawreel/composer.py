@@ -8,7 +8,7 @@ import asyncio
 import logging
 import math
 from pathlib import Path
-from typing import Literal
+from typing import Optional, List, Dict, Union, Any, Tuple, Literal
 
 from .config import (
     ASSETS_DIR,
@@ -31,9 +31,9 @@ TRANSITION_DURATION = 0.8  # 转场持续时间（秒）
 
 async def compose_sequential(
     tts_path: Path,
-    segments: list[dict],
+    segments: List[dict],
     music_path: Path,
-    output_path: Path | None = None,
+    output_path:Optional[Path] = None,
     transition: Literal["fade", "slide_left", "slide_right", "zoom", "none"] = "fade",
 ) -> Path:
     """按语义分段精确合成视频。
@@ -77,7 +77,7 @@ async def compose_sequential(
     image_dir = ASSETS_DIR / "images"  # ✅ 使用统一的 images 目录
     image_dir.mkdir(parents=True, exist_ok=True)
 
-    async def generate_one_segment(i: int, seg: dict) -> tuple[int, Path] | None:
+    async def generate_one_segment(i: int, seg: dict) ->Optional[Tuple[int, Path]]:
         """优先复用已有图片，避免重复生成。
 
         优先级：
@@ -120,7 +120,7 @@ async def compose_sequential(
     tasks = [sem_gen(i, seg) for i, seg in enumerate(segments)]
     results = await asyncio.gather(*tasks, return_exceptions=True)
 
-    local_paths: list[tuple[int, Path]] = []
+    local_paths: List[tuple[int, Path]] = []
     for r in results:
         if isinstance(r, Exception):
             logger.warning("⚠️ 图片生成异常: %s", r)
@@ -155,9 +155,23 @@ async def compose_sequential(
     body_dir = ASSETS_DIR / "body_clips"
     body_dir.mkdir(parents=True, exist_ok=True)
 
+    clip_durations = [seg["duration_sec"] for seg in segments]
+    xfade_durs = []
+    
+    if transition != "none":
+        for i, dur in enumerate(clip_durations):
+            if i < len(clip_durations) - 1:
+                # Max transition is 0.5 * clip duration to avoid overlapping overlaps
+                xfade_durs.append(min(TRANSITION_DURATION, dur * 0.45))
+            else:
+                xfade_durs.append(0.0)
+    else:
+        xfade_durs = [0.0] * len(clip_durations)
+
     async def make_clip(i: int, img_path: Path, seg: dict):
         clip_path = body_dir / f"clip_{i:03d}.mp4"
-        clip_duration = seg["duration_sec"]
+        # 延长片段时长，提前抵消之后 xfade 拼接带来的时间损耗！
+        clip_duration = seg["duration_sec"] + xfade_durs[i]
         await asyncio.to_thread(run_ffmpeg, [
             "ffmpeg", "-y",
             "-loop", "1",
@@ -174,7 +188,7 @@ async def compose_sequential(
             "-an",
             str(clip_path),
         ])
-        logger.debug("✅ 生成片段 %d/%d: %s (%.1fs)", i + 1, len(segments), clip_path.name, clip_duration)
+        logger.debug("✅ 生成片段 %d/%d: %s (实际合成时长: %.3fs)", i + 1, len(segments), clip_path.name, clip_duration)
         return clip_path
 
     clip_tasks = [make_clip(i, image_paths[i], seg) for i, seg in enumerate(segments)]
@@ -187,8 +201,7 @@ async def compose_sequential(
     if transition == "none":
         _concat_clips(clip_paths, body_video)
     else:
-        clip_durations = [seg["duration_sec"] for seg in segments]
-        _xfade_clips(clip_paths, clip_durations, body_video, transition)
+        _xfade_clips(clip_paths, clip_durations, xfade_durs, body_video, transition)
 
     # ── Step 5: 混音（TTS + 背景音乐）─ 输出最终视频 ─────────────────────
     run_ffmpeg([
@@ -239,147 +252,67 @@ async def compose_sequential(
     return output_path
 
 
-# ── 内部：转场滤镜 ─────────────────────────────────────────────────────────
-
 def _xfade_clips(
-    clip_paths: list[Path],
-    clip_durations: list[float],
+    clip_paths: List[Path],
+    clip_durations: List[float],
+    xfade_durs: List[float],
     output: Path,
     transition: Literal["fade", "slide_left", "slide_right", "zoom", "none"],
 ) -> None:
-    """多 clip 转场合成。clip_durations 直接取自 segments，无 FFprobe 开销。"""
+    """多 clip 转场合成（使用内建 xfade）。通过 xfade_durs 补偿补偿叠加时间以防总长度缩减。"""
     n = len(clip_paths)
-    per_image_duration = sum(clip_durations) / n
-
-    xfade_dur = min(TRANSITION_DURATION, per_image_duration * 0.3)
-
-    if transition == "fade":
-        _xfade_fade(clip_paths, output, xfade_dur, per_image_duration)
-    else:
-        _xfade_overlay(clip_paths, output, transition, xfade_dur, per_image_duration)
-
-
-def _xfade_fade(
-    clip_paths: list[Path],
-    output: Path,
-    xfade_dur: float,
-    per_image_duration: float,
-) -> None:
-    """fade 转场：每个 clip 首尾加 fade，用 concat 拼接。"""
-    n = len(clip_paths)
-    total_dur = n * per_image_duration - (n - 1) * xfade_dur
-
-    cmd = ["ffmpeg", "-y"]
-    for p in clip_paths:
-        cmd += ["-i", str(p)]
-
-    filter_parts = []
-    for i in range(n):
-        if i == 0:
-            filter_parts.append(
-                f"[{i}:v]fade=t=out:st={per_image_duration - xfade_dur}"
-                f":d={xfade_dur}[v{i}]"
-            )
-        elif i == n - 1:
-            filter_parts.append(f"[{i}:v]fade=t=in:st=0:d={xfade_dur}[v{i}]")
-        else:
-            filter_parts.append(
-                f"[{i}:v]"
-                f"fade=t=in:st=0:d={xfade_dur},"
-                f"fade=t=out:st={per_image_duration - xfade_dur}:d={xfade_dur}[v{i}]"
-            )
-
-    concat_labels = "+".join(f"[v{i}]" for i in range(n))
-    filter_parts.append(f"{concat_labels}concat=n={n}:v=1:a=0[outv]")
-
-    cmd += [
-        "-filter_complex", ";".join(filter_parts),
-        "-map", "[outv]",
-        *FFMPEG_VIDEO_OPTS,
-        "-t", str(total_dur),
-        str(output),
-    ]
-    run_ffmpeg(cmd)
-
-
-def _xfade_overlay(
-    clip_paths: list[Path],
-    output: Path,
-    transition: Literal["slide_left", "slide_right", "zoom"],
-    xfade_dur: float,
-    per_image_duration: float,
-) -> None:
-    """slide_left / slide_right / zoom 转场：overlay 链式叠加。"""
-    n = len(clip_paths)
-
-    xfade_offset = [0.0] * n
-    for i in range(1, n):
-        xfade_offset[i] = (i - 1) * (per_image_duration - xfade_dur) + xfade_dur
-
-    total_dur = xfade_offset[-1] + per_image_duration
-
-    cmd = ["ffmpeg", "-y"]
-    for p in clip_paths:
-        cmd += ["-i", str(p)]
-
-    filter_parts: list[str] = []
-
-    if transition == "slide_left":
-        for i in range(1, n):
-            offset = xfade_offset[i]
-            end_t = offset + xfade_dur
-            x_expr = f"W*(1-(t-{offset})/{xfade_dur})"
-            filter_parts.append(
-                f"[{i-1}:v][{i}:v]overlay=x={x_expr}:y=0:"
-                f"enable='between(t\\,{offset}\\,{end_t})'[vo{i}]"
-            )
-        last = f"[vo{n-1}]"
-
-    elif transition == "slide_right":
-        for i in range(1, n):
-            offset = xfade_offset[i]
-            end_t = offset + xfade_dur
-            x_expr = f"-W*(t-{offset})/{xfade_dur}"
-            filter_parts.append(
-                f"[{i-1}:v][{i}:v]overlay=x={x_expr}:y=0:"
-                f"enable='between(t\\,{offset}\\,{end_t})'[vo{i}]"
-            )
-        last = f"[vo{n-1}]"
-
-    elif transition == "zoom":
-        for i in range(1, n):
-            offset = xfade_offset[i]
-            end_t = offset + xfade_dur
-            zoom_filter = (
-                f"zoompan=z='min(zoom+0.003,1.5)':x=iw/2-(iw/zoom/2):"
-                f"y=ih/2-(ih/zoom/2):d=1:s={VIDEO_WIDTH}x{VIDEO_HEIGHT},"
-                f"fade=t=out:st=0:d={xfade_dur}"
-            )
-            filter_parts.append(f"[{i-1}:v]{zoom_filter}[v{i-1}z]")
-            filter_parts.append(f"[{i}:v]fade=t=in:st=0:d={xfade_dur}[v{i}f]")
-            filter_parts.append(
-                f"[v{i-1}z][v{i}f]overlay=0:0:"
-                f"enable='between(t\\,{offset}\\,{end_t})'[vo{i}]"
-            )
-        last = f"[vo{n-1}]"
-
-    else:
+    if n <= 1:
         _concat_clips(clip_paths, output)
         return
 
-    filter_parts.append(f"{last}copy[outv]")
+    trans_map = {
+        "fade": "fade",
+        "slide_left": "slideleft",
+        "slide_right": "slideright",
+        "zoom": "fade",  # built-in xfade zoom doesn't exact match, map to fade or circlecrop/smoothleft. Using fade.
+    }
+    tf = trans_map.get(transition, "fade")
+
+    cmd = ["ffmpeg", "-y"]
+    for p in clip_paths:
+        cmd += ["-i", str(p)]
+
+    filter_parts: List[str] = []
+    
+    # Cascade built-in xfade
+    # v0 = clip 0
+    # v1 = xfade(v0, clip 1, offset=d0)
+    # v2 = xfade(v1, clip 2, offset=d0+d1)
+    
+    cumulative_durs = 0.0
+    last_v = "0:v"
+    
+    for i in range(1, n):
+        # The offset is the sum of pure conceptual durations of all preceding clips
+        # Because we mathematical extended each clip by xfade_dur!
+        cumulative_durs += clip_durations[i-1]
+        xfade_overlap = xfade_durs[i-1]
+        
+        # built-in xfade
+        current_out = f"v{i}"
+        
+        # When bridging, FFmpeg xfade filter is:
+        # [last_v][i:v]xfade=transition=fade:duration=X:offset=Y[v{i}]
+        filter_parts.append(
+            f"[{last_v}][{i}:v]xfade=transition={tf}:duration={xfade_overlap:.3f}:offset={cumulative_durs:.3f}[{current_out}]"
+        )
+        last_v = current_out
 
     cmd += [
         "-filter_complex", ";".join(filter_parts),
-        "-map", "[outv]",
+        "-map", f"[{last_v}]",
         *FFMPEG_VIDEO_OPTS,
-        "-t", str(total_dur),
         str(output),
     ]
     run_ffmpeg(cmd)
 
 
-def _concat_clips(clip_paths: list[Path], output: Path) -> None:
+def _concat_clips(clip_paths: List[Path], output: Path) -> None:
     """无转场，直接 concat 拼接。"""
     lst = ASSETS_DIR / "concat_list.txt"
     with open(lst, "w") as f:

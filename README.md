@@ -61,6 +61,8 @@ graph LR
 
 -   **即插即用 CLI**：通过 `pip install -e .` 安装后，可在任何工作空间直接调用 `clawreel` 命令。
 -   **语义对齐流水线**：声音、字幕、画面三者精确同步——图片切换时机由 TTS 逐词时间戳决定，每张图内容由对应语句语义生成。
+-   **抗坍缩转场补偿 (v4.0)**：自带数学级 xfade 拼接补偿，防止自动转场时导致的视频后段错位与字幕消散。
+-   **智能分句防火墙 (v4.0)**：上下文敏感断句算法，支持版本号、小数点防拆，完美兼容类似 `GLM5.1` 和 `GPT-4.5` 的科技词汇。
 -   **语义分句**：Edge TTS 自带逐词时间戳（~50ms 精度），无需 Whisper 重转录。
 -   **策略模式驱动**：分发平台集成完全采用注册字典形式，易于扩展新渠道。
 
@@ -101,7 +103,7 @@ clawreel compose \
   --transition fade
 
 # Phase 5: 后期处理（字幕 + AIGC）
-clawreel post --video output/composed.mp4 --title "AI觉醒"
+clawreel post --video output/composed.mp4 --title "AI觉醒" --font-size 16
 
 # Phase 6: 多平台发布
 clawreel publish --video output/final.mp4 --title "AI觉醒" --platforms douyin xiaohongshu

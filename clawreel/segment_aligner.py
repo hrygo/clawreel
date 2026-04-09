@@ -6,7 +6,8 @@
 """
 import logging
 import re
-from typing import TypedDict
+from typing import TypedDict, Optional, List, Union, Dict, Any, Tuple
+from pathlib import Path
 
 from .utils import WordTimestamp, parse_srt_timestamp
 
@@ -45,10 +46,11 @@ FILLER_WORDS = frozenset("啊吧呢呀哦嗯嘛哈哇呃噢")
 
 def align_segments(
     text: str,
-    word_timestamps: list[WordTimestamp],
+    word_timestamps: List[WordTimestamp],
+    sentences: Optional[List[str]] = None,
+    image_prompts: Optional[List[str]] = None,
     audio_duration: float = 0.0,
-    image_prompts: list[str] | None = None,
-) -> list[ScriptSegment]:
+) -> List[ScriptSegment]:
     """将逐词时间戳按语义分句，对齐到真实时间轴。
 
     当 word_timestamps 为空时（MiniMax 降级模式），使用均匀时长估算：
@@ -98,7 +100,7 @@ def align_segments(
         avail = audio_duration - gap * (len(sentences) - 1) - 0.4
         per_sent = max(avail / len(sentences), 0.5)
         cursor = 0.2
-        segments: list[ScriptSegment] = []
+        segments: List[ScriptSegment] = []
         for i, sent in enumerate(sentences):
             start_sec = cursor
             end_sec = cursor + per_sent - gap
@@ -141,7 +143,7 @@ def align_segments(
     assignments = _assign_words_to_sentences(sentences, word_timestamps)
 
     # 组装 ScriptSegment
-    segments: list[ScriptSegment] = []
+    segments: List[ScriptSegment] = []
     for i, (sentence_text, start_idx, end_idx) in enumerate(assignments):
         start_sec = word_timestamps[start_idx]["start_sec"]
         end_sec = word_timestamps[end_idx]["end_sec"]
@@ -167,7 +169,7 @@ def align_segments(
     return segments
 
 
-def split_long_segments(segments: list[ScriptSegment]) -> list[ScriptSegment]:
+def split_long_segments(segments: List[ScriptSegment]) -> List[ScriptSegment]:
     """将 duration_sec > MAX_SEGMENT_DURATION 的段落拆分。
 
     Args:
@@ -176,7 +178,7 @@ def split_long_segments(segments: list[ScriptSegment]) -> list[ScriptSegment]:
     Returns:
         拆分后的段落列表（时长全部 <= MAX_SEGMENT_DURATION）
     """
-    result: list[ScriptSegment] = []
+    result: List[ScriptSegment] = []
     sub_index_counter = 0
 
     for seg in segments:
@@ -192,15 +194,15 @@ def split_long_segments(segments: list[ScriptSegment]) -> list[ScriptSegment]:
 
         # 按原始时长比例分配子段时长
         total_chars = sum(len(t) for t in sub_texts)
-        sub_durations: list[float] = []
+        sub_durations: List[float] = []
         for t in sub_texts:
             frac = len(t) / total_chars
             sub_durations.append(seg["duration_sec"] * frac)
 
         # 合并过短子段（< MIN_CHUNK_DURATION）
         # 策略：累积短块直到达到阈值，再作为独立 segment 输出
-        merged_texts: list[str] = []
-        merged_durations: list[float] = []
+        merged_texts: List[str] = []
+        merged_durations: List[float] = []
         buf_text = ""
         buf_dur = 0.0
 
@@ -275,7 +277,7 @@ def refine_image_prompt(segment_text: str) -> str:
     return f"短视频画面：{cleaned}{style_suffix}"
 
 
-def parse_srt_segments(srt_path: str | None) -> list[ScriptSegment]:
+def parse_srt_segments(srt_path: Union[str, Path]) -> List[ScriptSegment]:
     """从 SRT 文件解析句级时间轴（用于 burn-subs 或外部导入）。
 
     精度降为句级（无词级），每条字幕为一段。
@@ -290,15 +292,12 @@ def parse_srt_segments(srt_path: str | None) -> list[ScriptSegment]:
         FileNotFoundError: 文件不存在
         ValueError: 解析失败
     """
-    import re
-    from pathlib import Path
+    path = Path(srt_path)
+    if not path.exists():
+        raise FileNotFoundError(f"SRT 文件不存在: {path}")
 
-    srt_path = Path(srt_path)
-    if not srt_path.exists():
-        raise FileNotFoundError(f"SRT 文件不存在: {srt_path}")
-
-    content = srt_path.read_text(encoding="utf-8")
-    segments: list[ScriptSegment] = []
+    content = path.read_text(encoding="utf-8")
+    segments: List[ScriptSegment] = []
 
     # SRT 块正则：索引 + 时间行 + 文本行（可能多行）
     pattern = re.compile(
@@ -331,33 +330,30 @@ def parse_srt_segments(srt_path: str | None) -> list[ScriptSegment]:
 
 # ── 内部实现 ────────────────────────────────────────────────────────────────
 
-def _split_sentences(text: str) -> list[str]:
-    """按句子边界标记分割文本，返回不含标点的句子列表。
+import re
 
+def _split_sentences(text: str) -> List[str]:
+    """按句子边界标记分割文本，返回不含标点的句子列表。
+    
+    能够正确识别标点符号，并且忽略浮点数中的点（如 5.1 不会被切断）。
     句子边界：。！？.?!
     """
-    sentences: list[str] = []
-    current = ""
-
-    for ch in text:
-        if ch in SENTENCE_DELIMITERS:
-            if current.strip():
-                sentences.append(current.strip())
-            current = ""
-        else:
-            current += ch
-
-    if current.strip():
-        sentences.append(current.strip())
-
-    # 过滤空句
-    return [s for s in sentences if len(s) >= 2]
+    # 匹配中英文句号、叹号、问号，但不匹配被数字包围的英文字符 "."
+    # (?<=[。！？\?!]) : 前面是中英文叹号、问号、句号
+    # |(?<!\d)\.(?!\d) : 或者英文句号，且前后不能同时是数字
+    # 注意我们需要捕获边界或者不保留边界？要求是不保留标点，所以可以直接作为切分依据。
+    # 为了避免繁琐，可以直接切分并剔除空结果。
+    pattern = r'[。！？\?!]|(?<!\d)\.(?!\d)'
+    parts = re.split(pattern, text)
+    
+    sentences = [p.strip() for p in parts if len(p.strip()) >= 2]
+    return sentences
 
 
 def _merge_short_sentences(
-    sentences: list[str],
-    word_timestamps: list[WordTimestamp],
-) -> list[str]:
+    sentences: List[str],
+    word_timestamps: List[WordTimestamp],
+) -> List[str]:
     """合并持续时长 < SHORT_SEGMENT_THRESHOLD 的相邻短句。
 
     策略：计算每句在 word_timestamps 中的跨度，
@@ -372,7 +368,7 @@ def _merge_short_sentences(
         return sentences
 
     total_dur = word_timestamps[-1]["end_sec"] - word_timestamps[0]["start_sec"]
-    result: list[str] = []
+    result: List[str] = []
 
     for i, sentence in enumerate(sentences):
         frac = chars_per_sentence[i] / total_chars
@@ -387,15 +383,15 @@ def _merge_short_sentences(
 
 
 def _assign_words_to_sentences(
-    sentences: list[str],
-    word_timestamps: list[WordTimestamp],
-) -> list[tuple[str, int, int]]:
+    sentences: List[str],
+    word_timestamps: List[WordTimestamp],
+) -> List[tuple[str, int, int]]:
     """贪心分配：每个句子收集连续词，直到文本前缀匹配。
 
     Returns:
-        list[(sentence_text, start_word_idx, end_word_idx)]
+        List[(sentence_text, start_word_idx, end_word_idx)]
     """
-    result: list[tuple[str, int, int]] = []
+    result: List[tuple[str, int, int]] = []
     cursor = 0
     num_sentences = len(sentences)
     num_words = len(word_timestamps)
@@ -444,7 +440,7 @@ def _assign_words_to_sentences(
     return result
 
 
-def _split_by_chunk_delimiters(text: str) -> list[str]:
+def _split_by_chunk_delimiters(text: str) -> List[str]:
     """按 CHUNK_DELIMITERS 拆分长句，返回子文本列表（保持顺序）。"""
     pattern = "|".join(re.escape(d) for d in CHUNK_DELIMITERS)
     parts = re.split(pattern, text)

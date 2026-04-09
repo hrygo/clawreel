@@ -14,7 +14,7 @@ import asyncio
 import logging
 import contextlib
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Union, List, Dict, Any
 
 import aiohttp
 import tenacity
@@ -81,12 +81,12 @@ def generate_idempotency_key(*parts: str) -> str:
 
 async def api_post(
     endpoint: str = "",
-    payload: dict | None = None,
-    params: dict | None = None,
-    session: aiohttp.ClientSession | None = None,
-    url: str | None = None,
-    headers: dict | None = None,
-) -> dict:
+    payload: Optional[Dict] = None,
+    params: Optional[Dict] = None,
+    session: Optional[aiohttp.ClientSession] = None,
+    url: Optional[str] = None,
+    headers: Optional[Dict] = None,
+) -> Dict:
     """统一 POST 调用。支持自定义 url 和 headers 重写。"""
     final_url = url if url else f"{_MINIMAX_BASE_URL}{endpoint}"
     if payload is None:
@@ -115,11 +115,11 @@ async def api_post(
 
 async def api_get(
     endpoint: str = "",
-    params: dict | None = None,
-    session: aiohttp.ClientSession | None = None,
-    url: str | None = None,
-    headers: dict | None = None,
-) -> dict:
+    params: Optional[Dict] = None,
+    session: Optional[aiohttp.ClientSession] = None,
+    url: Optional[str] = None,
+    headers: Optional[Dict] = None,
+) -> Dict:
     """统一 GET 调用。"""
     final_url = url if url else f"{_MINIMAX_BASE_URL}{endpoint}"
 
