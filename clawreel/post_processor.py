@@ -11,7 +11,7 @@ import subprocess
 from pathlib import Path
 
 from .config import COVER_FULL, COVER_VISIBLE, FFMPEG_VIDEO_OPTS, OUTPUT_DIR, AIGC_CONFIG
-from .utils import ensure_parent_dir, run_ffmpeg as _run_ffmpeg, get_media_duration
+from .utils import ensure_parent_dir, format_srt_timestamp, run_ffmpeg as _run_ffmpeg, get_media_duration
 
 logger = logging.getLogger(__name__)
 
@@ -217,7 +217,6 @@ async def post_process(
                 segments = seg_data.get("segments", [])
                 if segments and all(s.get("start_sec") is not None and s.get("text") for s in segments):
                     # 从 segments 直接生成 SRT（精确时间戳，不依赖外部 SRT 文件）
-                    from .utils import format_srt_timestamp
                     srt_lines: list[str] = []
                     for idx, seg in enumerate(segments, start=1):
                         start = format_srt_timestamp(seg["start_sec"])
@@ -287,12 +286,15 @@ async def post_process(
         current = output_path
 
     # 清理字幕中间文件（如果存在）
-    subtitled = video_path.with_suffix(".subtitled.mp4")
-    if subtitled.exists():
-        try:
-            subtitled.unlink()
-        except OSError:
-            pass
+    for tmp_file in [
+        video_path.with_suffix(".subtitled.mp4"),
+        video_path.parent / (video_path.stem + ".segments.srt"),
+    ]:
+        if tmp_file.exists():
+            try:
+                tmp_file.unlink()
+            except OSError:
+                pass
 
     logger.info("✅ 后期处理完成: %s", output_path)
     return output_path
