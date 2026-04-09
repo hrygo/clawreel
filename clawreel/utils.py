@@ -15,6 +15,8 @@ CLEAN_CHAR_CLASS_RE = re.compile(r"[^\w\u4e00-\u9fff]+")
 
 logger = logging.getLogger(__name__)
 
+SCRIPT_SEPARATOR = "|"
+
 T = TypeVar("T")
 
 
@@ -174,8 +176,25 @@ def format_srt_timestamp(seconds: float) -> str:
     hours = int(seconds // 3600)
     minutes = int((seconds % 3600) // 60)
     secs = int(seconds % 60)
-    millis = int((seconds % 1) * 1000)
+    millis = int(round((seconds % 1) * 1000))
+    if millis >= 1000:
+        millis = 999
     return f"{hours:02d}:{minutes:02d}:{secs:02d},{millis:03d}"
+
+
+def segments_to_srt(segments: List[Dict[str, Any]]) -> str:
+    """将对齐后的 segments 转换为标准的 SRT 字符串。"""
+    lines: List[str] = []
+    for i, seg in enumerate(segments, start=1):
+        start = format_srt_timestamp(seg["start_sec"])
+        end = format_srt_timestamp(seg["end_sec"])
+        text = seg["text"].strip().replace("|", "") # 移除内部的分隔符
+        
+        lines.append(f"{i}")
+        lines.append(f"{start} --> {end}")
+        lines.append(text)
+        lines.append("")
+    return "\n".join(lines)
 
 
 def parse_srt_timestamp(ts: str) -> float:
@@ -203,3 +222,9 @@ def extract_task_id(result: dict, context: str = "Task") -> str:
     if not task_id:
         raise RuntimeError(f"{context} 提交无 task_id: {result}")
     return task_id
+
+
+def print_json(data: dict) -> None:
+    """格式化并打印 JSON 字典到标准输出。"""
+    import json
+    print(json.dumps(data, indent=2, ensure_ascii=False))

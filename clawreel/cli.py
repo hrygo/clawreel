@@ -29,12 +29,19 @@ from .script_generator import generate_script
 from .tts_voice import generate_voice
 from .segment_aligner import align_segments, split_long_segments
 from .image_generator import generate_segment_images
+from .video_generator import generate_video
 from .composer import compose_sequential
 from .post_processor import post_process
 from .publisher import publish
 from .subtitle_extractor import extract_subtitles
 from .music_generator import generate_music
-from .utils import get_media_duration
+from .utils import (
+    get_media_duration, 
+    print_json, 
+    SCRIPT_SEPARATOR, 
+    CLEAN_CHAR_CLASS_RE,
+    segments_to_srt
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -175,7 +182,8 @@ async def cmd_align(args):
     """给定文本 + TTS 音频，独立输出对齐后的 segments JSON。"""
     script_data = None
     hooks_text = None
-    hook_prompt = None
+    sentences = None
+    global_visual_context = None
     style_prompt = None
     image_prompts = None
 
@@ -187,19 +195,22 @@ async def cmd_align(args):
                 hooks_text = script_data["hooks"]
                 logger.info("✅ 从脚本 %s 读取 %d 个 hooks", args.script, len(hooks_text))
 
-            if "hook_prompt" in script_data:
-                hook_prompt = script_data["hook_prompt"]
-                logger.info("✅ 从脚本 %s 读取 hook_prompt", args.script)
+            if "global_visual_context" in script_data:
+                global_visual_context = script_data["global_visual_context"]
+                logger.info("✅ 从脚本 %s 读取 global_visual_context", args.script)
 
             if "style_prompt" in script_data:
                 style_prompt = script_data["style_prompt"]
                 logger.info("✅ 从脚本 %s 读取 style_prompt", args.script)
 
+            if "sentences" in script_data:
+                sentences = script_data["sentences"]
+
             if "image_prompts" in script_data:
                 image_prompts = script_data["image_prompts"]
-                logger.info("✅ 从脚本 %s 读取 %d 个 image_prompts", args.script, len(image_prompts))
+                logger.info("✅ 从脚本 %s 读取 %d 个 image_prompts（Agent 预构建）", args.script, len(image_prompts))
             else:
-                logger.warning("⚠️ 脚本文件 %s 未包含 image_prompts 字段", args.script)
+                logger.info("ℹ️ 脚本文件 %s 未包含 image_prompts，将使用默认 prompt 模板", args.script)
 
         except (json.JSONDecodeError, FileNotFoundError) as e:
             logger.warning("⚠️ 脚本文件读取失败: %s，跳过", e)
@@ -211,25 +222,28 @@ async def cmd_align(args):
         except json.JSONDecodeError as e:
             logger.warning("⚠️ image_prompts JSON 解析失败: %s，跳过", e)
 
-    if hook_prompt and style_prompt:
-        hook_prompt = f"{style_prompt}, {hook_prompt}"
-        logger.info("✅ 组合完整 hook_prompt (style + scene)")
-
-    if image_prompts and style_prompt:
-        image_prompts = [f"{style_prompt}, {prompt}" for prompt in image_prompts]
-        logger.info("✅ 组合完整 image_prompts (style + scene × %d)", len(image_prompts))
-
     full_text = args.text
     hooks_count = 0
 
     if hooks_text and script_data:
-        if args.text.startswith(hooks_text[0]):
+        # 鲁棒性匹配：忽略标点和空白符来检查正文是否已包含 hook
+        def clean_str(s):
+            import re
+            return re.sub(r'[^\w\u4e00-\u9fa5]', '', s).strip()
+
+        clean_body_head = clean_str(args.text[:len(hooks_text[0]) + 10])
+        clean_hook_head = clean_str(hooks_text[0])
+
+        if clean_body_head.startswith(clean_hook_head):
             hooks_count = len(hooks_text)
-            logger.info("✅ hooks 文本已在正文中，hooks 数量=%d", hooks_count)
+            logger.info("✅ hooks 文本已在正文中 (忽略标点匹配)，hooks 数量=%d", hooks_count)
         else:
             hooks_joined = SCRIPT_SEPARATOR.join(hooks_text)
             full_text = f"{hooks_joined}{SCRIPT_SEPARATOR}{args.text}"
             hooks_count = len(hooks_text)
+            # 同步更新 sentences 列表
+            if sentences:
+                sentences = hooks_text + sentences
             logger.info("✅ hooks 文本拼接到正文前面，hooks 数量=%d", hooks_count)
 
     result = await generate_voice(
@@ -238,22 +252,26 @@ async def cmd_align(args):
         voice_id=args.voice,
     )
 
-    if hook_prompt and hooks_count > 0 and image_prompts:
-        for i in range(min(hooks_count, len(image_prompts))):
-            image_prompts[i] = hook_prompt
-        logger.info("✅ 前 %d 个 image_prompts 替换为 hook_prompt", hooks_count)
-
     audio_duration = get_media_duration(result["audio_path"])
     segments = align_segments(
         full_text, result["word_timestamps"],
         audio_duration=audio_duration,
+        sentences=sentences,
         image_prompts=image_prompts,
     )
     if args.split_long:
         segments = split_long_segments(segments)
 
+    # 导出最终对齐好的 SRT（基于修正后的时间轴）
+    srt_content = segments_to_srt(segments)
+    srt_path = Path(result["audio_path"]).with_suffix(".srt")
+    srt_path.write_text(srt_content, encoding="utf-8")
+    logger.info("✅ 最终对齐 SRT 已导出: %s", srt_path)
+
     output = {
         "text": full_text,
+        "global_visual_context": global_visual_context,
+        "style_prompt": style_prompt,
         "audio_path": str(result["audio_path"]),
         "srt": str(result["srt_path"]) if result["srt_path"] else None,
         "segments": [
@@ -264,6 +282,7 @@ async def cmd_align(args):
                 "end_sec": round(s["end_sec"], 3),
                 "duration_sec": round(s["duration_sec"], 3),
                 "image_prompt": s["image_prompt"],
+                "is_hook": s.get("is_hook", False),
             }
             for s in segments
         ],
@@ -282,21 +301,91 @@ async def cmd_assets(args):
     """图片生成（由 segments 驱动）。"""
     segments_path = Path(args.segments)
     data = json.loads(segments_path.read_text(encoding="utf-8"))
-    # 兼容两种格式：顶层 "segments" 列表，或直接是列表
     segments = data.get("segments") or data
     if not segments:
         raise ValueError("segments JSON 为空")
 
-    image_paths = await generate_segment_images(
+    # 1. 生成图片
+    image_paths, image_urls = await generate_segment_images(
         segments,
+        global_context=data.get("global_visual_context"),
+        style_prompt=data.get("style_prompt"),
         max_concurrent=args.max_concurrent,
     )
 
+    # 2. 如果开启了 --video，自动生成视频头
+    video_info = None
+    if getattr(args, "video", False):
+        logger.info("🎬 检测到 --video 开启，开始生成片头视频...")
+        video_info = await generate_hook_video(
+            segments,
+            global_context=data.get("global_visual_context"),
+            style_prompt=data.get("style_prompt")
+        )
+
     print_json({
-        "images": [str(p) for p in image_paths],
+        "images": [str(p) if p else None for p in image_paths],
+        "video": video_info,
         "segments_count": len(segments),
-        "generated": len(image_paths),
     })
+
+
+async def generate_hook_video(
+    segments: List[Dict],
+    global_context: Optional[str] = None,
+    style_prompt: Optional[str] = None
+) -> Optional[Dict]:
+    """为 segments 中的 hook 片段生成视频（目前仅支持第一个片段）。"""
+    hook_seg = None
+    for seg in segments:
+        if seg.get("is_hook"):
+            hook_seg = seg
+            break
+    
+    if not hook_seg:
+        logger.warning("⚠️ 未发现标记为 is_hook 的片段，跳过视频生成")
+        return None
+    
+    # 优先使用 OSS URL 作为 I2V 输入（MiniMax API 要求）
+    input_image = hook_seg.get("image_url")
+    if not input_image:
+        # 降级：寻找本地图
+        img_dir = Path("assets/images")
+        first_frame = img_dir / f"seg_{hook_seg['index']:03d}_0.jpg"
+        input_image = str(first_frame) if first_frame.exists() else None
+        if input_image:
+            logger.warning("⚠️ 缺失 OSS URL，降级使用本地路径（可能导致 API 错误）: %s", input_image)
+    
+    final_prompt = hook_seg["image_prompt"]
+    if global_context or style_prompt:
+        parts = []
+        if global_context: parts.append(global_context)
+        if style_prompt: parts.append(style_prompt)
+        parts.append("[Sequence: Hook/Intro]")
+        parts.append(hook_seg["image_prompt"])
+        final_prompt = ", ".join(p for p in parts if p)
+
+    try:
+        video_path = await generate_video(
+            prompt=final_prompt,
+            duration=6,
+            input_image=input_image,
+            output_filename="video_head.mp4"
+        )
+        return {"path": str(video_path)}
+    except Exception as e:
+        logger.error("❌ 片头视频生成失败: %s", e)
+        return {"error": str(e)}
+
+
+async def cmd_video(args):
+    """独立视频生成命令。"""
+    segments_path = Path(args.segments)
+    data = json.loads(segments_path.read_text(encoding="utf-8"))
+    segments = data.get("segments") or data
+    
+    result = await generate_hook_video(segments)
+    print_json(result)
 
 
 async def cmd_compose(args):
@@ -310,6 +399,7 @@ async def cmd_compose(args):
         music_path=Path(args.music),
         output_path=Path(args.output) if args.output else None,
         transition=args.transition,
+        hook_video_path=Path(args.hook_video) if args.hook_video else None,
     )
     print_json({"path": str(video_path)})
 
@@ -436,6 +526,12 @@ def main():
     p.add_argument("--segments", "-s", required=True, metavar="PATH",
                    help="segments JSON 文件")
     p.add_argument("--max-concurrent", type=int, default=3)
+    p.add_argument("--video", action="store_true", help="一并生成 6 秒片头视频 (I2V/T2V)")
+
+    # Phase 3.5: video (Explicit hook video generation)
+    p = subparsers.add_parser("video", help="[Phase 3.5] 生成 6 秒片头视频 (I2V/T2V 优先)")
+    p.add_argument("--segments", "-s", required=True, metavar="PATH",
+                   help="segments JSON 文件")
 
     # Phase 4: compose
     p = subparsers.add_parser("compose", help="[Phase 4] 视频合成（FFmpeg 转场）")
@@ -444,7 +540,9 @@ def main():
     p.add_argument("--music", required=True, metavar="PATH")
     p.add_argument("--output", "-o", default=None, metavar="PATH")
     p.add_argument("--transition", default="fade",
-                   choices=["fade", "slide_left", "slide_right", "zoom", "none"])
+                   choices=["fade", "slide_left", "slide_right", "zoom", "none"],
+                   help="图片转场效果")
+    p.add_argument("--hook-video", default=None, help="外部片头视频路径（如：video_head.mp4），将覆盖第一段素材")
 
     # Phase 5: post
     p = subparsers.add_parser("post", help="[Phase 5] 后期处理（字幕 + AIGC）")
@@ -511,6 +609,8 @@ def main():
                 await cmd_align(args)
             elif args.command == "assets":
                 await cmd_assets(args)
+            elif args.command == "video":
+                await cmd_video(args)
             elif args.command == "compose":
                 await cmd_compose(args)
             elif args.command == "post":

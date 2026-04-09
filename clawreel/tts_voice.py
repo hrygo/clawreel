@@ -23,6 +23,7 @@ from .utils import (
     get_media_duration,
     save_hex_audio,
     check_base_resp,
+    segments_to_srt,
 )
 
 logger = logging.getLogger(__name__)
@@ -140,48 +141,29 @@ async def _generate_edge_voice(
             await communicate.connector.close()
         raise
 
-    # 逐词时间戳：从 WordBoundary chunk 直接提取（edge_tts 5.x 无 to_object_list）
+    # 逐词时间戳：从 WordBoundary chunk 直接提取
+    # 注意：Edge TTS 返回的 offset 和 duration 单位是 100 纳秒 (ticks)，即 10^7/s
     word_timestamps: List[WordTimestamp] = []
+    TICKS_PER_SEC = 10_000_000
     for w in word_chunks:
-        offset_ns = int(w.get("offset", 0))
-        duration_ns = int(w.get("duration", 0))
+        offset_ticks = int(w.get("offset", 0))
+        duration_ticks = int(w.get("duration", 0))
         word_timestamps.append(
             WordTimestamp(
                 word=w.get("text", ""),
-                start_sec=offset_ns / 1_000_000_000,
-                end_sec=(offset_ns + duration_ns) / 1_000_000_000,
-                offset_ms=offset_ns / 1_000_000,
+                start_sec=offset_ticks / TICKS_PER_SEC,
+                end_sec=(offset_ticks + duration_ticks) / TICKS_PER_SEC,
+                offset_ms=offset_ticks / 10_000,
             )
         )
 
-    # 句级 SRT（每句一行，而非逐词）
-    srt_out:Optional[Path] = None
-    if word_timestamps:
-        try:
-            segments = align_segments(text, word_timestamps)
-            srt_content = _write_sentence_srt(segments)
-            if srt_content.strip():
-                with open(srt_path, "w", encoding="utf-8") as f:
-                    f.write(srt_content)
-                logger.info("✅ 句级 SRT 生成完成: %s（%d 句）", srt_path, len(segments))
-                srt_out = srt_path
-        except ValueError as e:
-            if "时长异常" in str(e):
-                logger.error("❌ 音频时长轴损坏，降级 SRT 可能不同步: %s", e)
-            else:
-                logger.warning("⚠️ 句级 SRT 生成失败，降级为逐词: %s", e)
-            # 降级：使用 submaker.get_srt() 生成逐词 SRT
-            srt_content = submaker.get_srt()
-            if srt_content.strip():
-                with open(srt_path, "w", encoding="utf-8") as f:
-                    f.write(srt_content)
-                srt_out = srt_path
-    else:
-        logger.warning("⚠️ Edge TTS 未生成任何时间戳")
+    # 句级 SRT 生成交由调用者（cli.py）在对齐后统一处理，
+    # 避免在此处进行不完整的二次分割/合并。
+    logger.info("✅ Edge TTS 逐词数据收集完成: %d 个词", len(word_timestamps))
 
     return TTSResult(
         audio_path=output_path,
-        srt_path=srt_out,
+        srt_path=None,
         word_timestamps=word_timestamps,
     )
 
@@ -256,18 +238,20 @@ async def _generate_minimax_voice(
     gap = 0.2
     avail = total_duration - gap * (len(sentences) - 1) - 0.4
     per_sent = max(avail / len(sentences), 0.5)
-    srt_content_lines = []
+    
+    dummy_segments = []
     t = 0.2
     for i, sent in enumerate(sentences):
         start = t
         end = t + per_sent - gap
         t = end + gap
-        srt_content_lines.append(f"{i + 1}")
-        srt_content_lines.append(f"{format_srt_timestamp(start)} --> {format_srt_timestamp(end)}")
-        srt_content_lines.append(sent)
-        srt_content_lines.append("")
+        dummy_segments.append({
+            "start_sec": start,
+            "end_sec": end,
+            "text": sent
+        })
 
-    srt_content = "\n".join(srt_content_lines)
+    srt_content = segments_to_srt(dummy_segments)
     with open(srt_path, "w", encoding="utf-8") as f:
         f.write(srt_content)
     logger.info("✅ MiniMax SRT 估算完成（%d 句，均匀分配）: %s", len(sentences), srt_path)

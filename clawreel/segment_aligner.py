@@ -24,11 +24,12 @@ class ScriptSegment(TypedDict):
     end_sec: float
     duration_sec: float
     image_prompt: str
+    is_hook: bool
 
 
 # ── 常量 ────────────────────────────────────────────────────────────────────
 
-SENTENCE_DELIMITERS = frozenset("。！？.?!")
+SENTENCE_DELIMITERS = frozenset("。！？.?!|")
 SHORT_SEGMENT_THRESHOLD = 1.0   # 秒；低于此值的短句合并到前一句
 MAX_SEGMENT_DURATION = 5.0      # 秒；超过此值触发拆分
 MIN_CHUNK_DURATION = 2.0         # 秒；拆分后每块至少这么久
@@ -88,9 +89,12 @@ def align_segments(
                 "使用 Edge TTS 以获得有效词级时间戳。"
             )
         # 均匀估算模式
-        sentences = _split_sentences(text)
+        if not sentences:
+            sentences = _split_sentences(text)
+        
         if not sentences:
             raise ValueError(f"文本无法分句，分句结果为空: {text[:50]!r}")
+            
         if len(sentences) > MAX_SENTENCE_COUNT:
             raise ValueError(
                 f"句子数 {len(sentences)} 超过上限 {MAX_SENTENCE_COUNT}，"
@@ -118,6 +122,7 @@ def align_segments(
                 end_sec=end_sec,
                 duration_sec=duration_sec,
                 image_prompt=prompt,
+                is_hook=(i == 0),
             ))
         logger.warning(
             "⚠️ 词级时间轴损坏（%.3f 秒），使用均匀估算时间轴（%d 句）",
@@ -126,18 +131,19 @@ def align_segments(
         )
         return segments
 
-    sentences = _split_sentences(text)
     if not sentences:
-        raise ValueError(f"文本无法分句，分句结果为空: {text[:50]!r}")
+        sentences = _split_sentences(text)
+        if not sentences:
+            raise ValueError(f"文本无法分句，分句结果为空: {text[:50]!r}")
 
-    if len(sentences) > MAX_SENTENCE_COUNT:
-        raise ValueError(
-            f"句子数 {len(sentences)} 超过上限 {MAX_SENTENCE_COUNT}，"
-            "建议拆分脚本为多个短视频"
-        )
+        if len(sentences) > MAX_SENTENCE_COUNT:
+            raise ValueError(
+                f"句子数 {len(sentences)} 超过上限 {MAX_SENTENCE_COUNT}，"
+                "建议拆分脚本为多个短视频"
+            )
 
-    # 合并超短句子（< 1 秒）
-    sentences = _merge_short_sentences(sentences, word_timestamps)
+        # 仅在自动分句时合并短句
+        sentences = _merge_short_sentences(sentences, word_timestamps)
 
     # 词-句分配
     assignments = _assign_words_to_sentences(sentences, word_timestamps)
@@ -164,6 +170,7 @@ def align_segments(
                 if image_prompts and i < len(image_prompts)
                 else refine_image_prompt(sentence_text.strip())
             ),
+            is_hook=(i == 0),
         ))
 
     return segments
@@ -234,6 +241,7 @@ def split_long_segments(segments: List[ScriptSegment]) -> List[ScriptSegment]:
                 end_sec=cursor + sub_dur,
                 duration_sec=sub_dur,
                 image_prompt=refine_image_prompt(sub_text.strip()),
+                is_hook=(sub_index_counter == 0),
             ))
             cursor += sub_dur
             sub_index_counter += 1
@@ -243,38 +251,15 @@ def split_long_segments(segments: List[ScriptSegment]) -> List[ScriptSegment]:
 
 def refine_image_prompt(segment_text: str) -> str:
     """将句子文本提纯为图片生成 prompt。
-
-    规则：
-    1. 移除语气词
-    2. 问句转描述场景
-    3. 截断超长文本（> 150 字）
-    4. 补充画面质量标签
+    
+    改进版：增加更多视觉描述词和构图暗示。
     """
     cleaned = segment_text
-
-    # Step 1: 移除语气词
     for fw in FILLER_WORDS:
         cleaned = cleaned.replace(fw, "")
 
-    # Step 2: 问句前缀转描述
-    question_prefixes = (
-        "有没有", "是不是", "能不能", "会不会",
-        "为什么", "怎么", "什么", "谁", "哪",
-    )
-    for qp in question_prefixes:
-        if cleaned.startswith(qp):
-            suffix = segment_text[len(qp):].strip()
-            if suffix:
-                cleaned = f"探讨{suffix}的视觉场景"
-            break
-
-    # Step 3: 截断
-    if len(cleaned) > 150:
-        cleaned = cleaned[:150] + "..."
-
-    # Step 4: 质量标签
-    style_suffix = "，电影感，高质量，9:16 竖屏，视觉冲击力强"
-    return f"短视频画面：{cleaned}{style_suffix}"
+    visual_hooks = "cinematic, hyper-realistic, 8k resolution, detailed texture, professional lighting, shot on 35mm lens"
+    return f"Professional Short Video Scene: {cleaned}. {visual_hooks}, 9:16 vertical orientation, vivid colors, minimalist composition."
 
 
 def parse_srt_segments(srt_path: Union[str, Path]) -> List[ScriptSegment]:
@@ -343,10 +328,10 @@ def _split_sentences(text: str) -> List[str]:
     # |(?<!\d)\.(?!\d) : 或者英文句号，且前后不能同时是数字
     # 注意我们需要捕获边界或者不保留边界？要求是不保留标点，所以可以直接作为切分依据。
     # 为了避免繁琐，可以直接切分并剔除空结果。
-    pattern = r'[。！？\?!]|(?<!\d)\.(?!\d)'
+    pattern = r'[。！？\?!\|]|(?<!\d)\.(?!\d)'
     parts = re.split(pattern, text)
     
-    sentences = [p.strip() for p in parts if len(p.strip()) >= 2]
+    sentences = [p.strip() for p in parts if len(p.strip()) >= 1]
     return sentences
 
 

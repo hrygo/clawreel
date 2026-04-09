@@ -22,7 +22,6 @@ from .config import (
 )
 from .api_client import download_file
 from .utils import run_ffmpeg, get_media_duration
-from .image_generator import generate_image
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +34,7 @@ async def compose_sequential(
     music_path: Path,
     output_path:Optional[Path] = None,
     transition: Literal["fade", "slide_left", "slide_right", "zoom", "none"] = "fade",
+    hook_video_path: Optional[Path] = None,
 ) -> Path:
     """按语义分段精确合成视频。
 
@@ -62,10 +62,21 @@ async def compose_sequential(
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # 计算总时长
+    # 计算总时长：优先从物理音频文件读取，确保音画完全对齐（防止 segments JSON 时长不足）
+    actual_audio_dur = get_media_duration(tts_path)
     total_start = segments[0]["start_sec"]
     total_end = segments[-1]["end_sec"]
-    tts_duration = total_end - total_start
+    # 逻辑总时长取两者最大值，兜底防止片段被截断
+    tts_duration = max(actual_audio_dur, total_end - total_start)
+    
+    # 如果音频明显长于 segments 总和，自动给最后一个段落延时
+    seg_sum = sum(s["duration_sec"] for s in segments)
+    if actual_audio_dur > seg_sum + 0.1:
+        gap = actual_audio_dur - seg_sum
+        logger.info("🕒 音频长于片段总和 (%.2fs)，补足最后一段时长", gap)
+        segments[-1]["duration_sec"] += gap
+        # 更新对齐算表
+        segments[-1]["end_sec"] = actual_audio_dur
 
     num_images = len(segments)
     logger.info(
@@ -138,7 +149,10 @@ async def compose_sequential(
 
     # ── Step 2: 扩展音乐 ─────────────────────────────────────────────────
     music_duration = get_media_duration(music_path)
-    if music_duration < tts_duration:
+    if music_duration <= 0:
+        logger.warning("⚠️ 背景音乐时长检测失败或为 0，将不进行循环拼接: %s", music_path)
+        loop_count = 1
+    else:
         loop_count = math.ceil(tts_duration / music_duration)
         ext_music = ASSETS_DIR / "music_extended.mp3"
         run_ffmpeg([
@@ -170,6 +184,28 @@ async def compose_sequential(
 
     async def make_clip(i: int, img_path: Path, seg: dict):
         clip_path = body_dir / f"clip_{i:03d}.mp4"
+        
+        # ── 特殊处理: Hook Video (片头视频) ──
+        if i == 0 and hook_video_path and hook_video_path.exists():
+            logger.info("🎬 使用外部片头视频覆盖第 1 段素材: %s", hook_video_path.name)
+            # 缩放并转换片头视频以匹配全局参数
+            await asyncio.to_thread(run_ffmpeg, [
+                "ffmpeg", "-y",
+                "-i", str(hook_video_path),
+                "-t", str(seg["duration_sec"] + xfade_durs[i]),
+                "-vf", (
+                    f"scale={VIDEO_WIDTH}:{VIDEO_HEIGHT}"
+                    f":force_original_aspect_ratio=decrease"
+                    f",pad={VIDEO_WIDTH}:{VIDEO_HEIGHT}"
+                    f":(ow-iw)/2:(oh-ih)/2:black,setsar=1"
+                ),
+                "-r", str(VIDEO_FPS),
+                *FFMPEG_VIDEO_OPTS,
+                "-an",
+                str(clip_path),
+            ])
+            return clip_path
+
         # 延长片段时长，提前抵消之后 xfade 拼接带来的时间损耗！
         clip_duration = seg["duration_sec"] + xfade_durs[i]
         await asyncio.to_thread(run_ffmpeg, [
