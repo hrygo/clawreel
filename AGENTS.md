@@ -48,7 +48,7 @@ graph LR
 ```
 
 * **Phase 0 – Check** ⚠️ 必做：零成本扫描现有资源，智能判定生成方案。
-* **Phase 1 – Script**：生成剧本与口播词，输出 `|` 分隔的句子列表。
+* **Phase 1 – Script**：Agent 生成完整口播内容 → `format` 命令格式化，输出标准 JSON。
 * **Phase 2 – TTS + Align**：Edge TTS 配音 + 逐词时间戳对齐 → `segments.json`（声音、字幕、画面三同步）。
 * **Phase 3 – Assets**：按 `segments.json` 批量生成图片（每句一张，语义相关）。
 * **Phase 4 – Compose**：FFmpeg 按精确时长合成（不再均分）。
@@ -82,8 +82,8 @@ curl -fsSL https://raw.githubusercontent.com/hrygo/clawreel/main/install.sh | ba
 # Phase 0: 资源检查（零成本）
 clawreel check --topic "AI未来趋势"
 
-# Phase 1: 生成脚本（输出含 sentences）
-clawreel script --topic "AI未来趋势"
+# Phase 1: 格式化口播内容（内容由 SKILL.md/Agent 生成）
+clawreel format --content "你有没有想过，未来会是什么样？| 就在昨天，一个AI震惊了所有人。| 看完你就明白了。"
 
 # Phase 2: TTS + 语义对齐 → segments.json
 clawreel align \
@@ -117,7 +117,7 @@ clawreel burn-subs --video output/composed.mp4 --model medium
 
 | 组件 | 模型                 | 说明                                   |
 | ---- | -------------------- | -------------------------------------- |
-| 脚本 | MiniMax M2.7         | Anthropic 兼容接口，输出 `\|` 分隔句子 |
+| 脚本 | Agent (SKILL.md)     | 负责内容创作，CLI 格式化 `\|` 分隔句子 |
 | 配音 | Edge TTS（免费）     | 逐词时间戳（~50ms），驱动语义对齐      |
 | 图片 | MiniMax image-01     | 9:16 竖屏，每句一张                    |
 | 音乐 | MiniMax music-2.5    | 背景音乐循环扩展                       |

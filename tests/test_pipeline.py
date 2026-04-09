@@ -1,9 +1,11 @@
 """单元测试 - 验证各模块接口和关键规格."""
+
 import pytest
 from pathlib import Path
 from unittest.mock import AsyncMock, patch, MagicMock
 
 import sys
+
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from clawreel.config import (
@@ -24,7 +26,9 @@ class TestConfigSpecs:
 
     def test_sample_rate_is_44100(self):
         """⚠️ 采样率必须是 44100 Hz，不是 32000."""
-        assert AUDIO_SAMPLE_RATE == 44100, f"采样率错误: {AUDIO_SAMPLE_RATE}，应为 44100"
+        assert AUDIO_SAMPLE_RATE == 44100, (
+            f"采样率错误: {AUDIO_SAMPLE_RATE}，应为 44100"
+        )
 
     def test_audio_bit_rate(self):
         """音频码率 128000."""
@@ -41,9 +45,13 @@ class TestConfigSpecs:
     def test_model_names(self):
         """API 模型名称必须符合 MiniMax 官方规范."""
         # T2V: MiniMax-Hailuo-2.3 或 MiniMax-Hailuo-02
-        assert MODEL_T2V in ("MiniMax-Hailuo-2.3", "MiniMax-Hailuo-02"), f"T2V 模型名异常: {MODEL_T2V}"
+        assert MODEL_T2V in ("MiniMax-Hailuo-2.3", "MiniMax-Hailuo-02"), (
+            f"T2V 模型名异常: {MODEL_T2V}"
+        )
         # I2V: MiniMax-Hailuo-2.3-Fast
-        assert MODEL_I2V in ("MiniMax-Hailuo-2.3-Fast", "MiniMax-Hailuo-02"), f"I2V 模型名异常: {MODEL_I2V}"
+        assert MODEL_I2V in ("MiniMax-Hailuo-2.3-Fast", "MiniMax-Hailuo-02"), (
+            f"I2V 模型名异常: {MODEL_I2V}"
+        )
         # TTS: speech-2.8-hd（无 MiniMax- 前缀，API 直接用此名称）
         assert MODEL_TTS.startswith("speech-"), f"TTS 模型名异常: {MODEL_TTS}"
         # Music: music-2.5+
@@ -60,24 +68,19 @@ class TestScriptGenerator:
     def test_script_data_structure(self):
         """验证 ScriptData 结构."""
         from clawreel.script_generator import ScriptData
+
         data: ScriptData = {
             "title": "测试标题",
-            "style_prompt": "温馨治愈风格，高质量摄影作品",
             "script": "测试脚本内容",
             "sentences": ["测试句子1", "测试句子2"],
             "hooks": ["钩子1", "钩子2"],
-            "hook_prompt": "片头画面描述",
             "cta": "关注我",
-            "image_prompts": ["提示词1", "提示词2"],
         }
         assert "title" in data
-        assert "style_prompt" in data
         assert "script" in data
         assert "sentences" in data
         assert "hooks" in data
-        assert "hook_prompt" in data
         assert "cta" in data
-        assert "image_prompts" in data
 
 
 class TestTTS:
@@ -86,6 +89,7 @@ class TestTTS:
     def test_video_fps(self):
         """视频帧率应为 25fps（MiniMax Hailuo 推荐）."""
         from clawreel.config import VIDEO_FPS
+
         assert VIDEO_FPS == 25, f"视频帧率应为 25，实际: {VIDEO_FPS}"
 
 
@@ -96,8 +100,11 @@ class TestMusicGenerator:
         """⚠️ 音乐生成 API 字段名是 is_instrumental，不是 instrumental."""
         import inspect
         from clawreel.music_generator import generate_music
+
         source = inspect.getsource(generate_music)
-        assert "is_instrumental" in source, "music_generator.py 必须使用 is_instrumental 字段"
+        assert "is_instrumental" in source, (
+            "music_generator.py 必须使用 is_instrumental 字段"
+        )
         assert "instrumental" not in source or "is_instrumental" in source
 
 
@@ -110,7 +117,9 @@ class TestCoverSpecs:
         # COVER_VISIBLE = (1080, 1464) 是渲染在 1080 宽画布上的可见区域
         # 抖音标题栏遮挡顶部约 1/3 区域
         # 关键内容必须布局在可见区域下半部分（y > 456）
-        assert COVER_VISIBLE == (1080, 1464), f"可见区域应为 1080×1464，实际 {COVER_VISIBLE}"
+        assert COVER_VISIBLE == (1080, 1464), (
+            f"可见区域应为 1080×1464，实际 {COVER_VISIBLE}"
+        )
 
 
 if __name__ == "__main__":

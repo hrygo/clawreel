@@ -82,8 +82,8 @@ curl -fsSL https://raw.githubusercontent.com/hrygo/clawreel/main/install.sh | ba
 # Phase 0: 资源检查（零成本）
 clawreel check --topic "AI未来趋势"
 
-# Phase 1: 生成脚本（输出含 sentences）
-clawreel script --topic "AI未来趋势"
+# Phase 1: 格式化口播内容（内容由 SKILL.md/Agent 生成）
+clawreel format --content "你有没有想过，未来会是什么样？| 就在昨天，一个AI震惊了所有人。| 看完你就明白了。"
 
 # Phase 2: TTS + 语义对齐 → segments.json
 clawreel align \

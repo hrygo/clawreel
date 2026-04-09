@@ -1,106 +1,137 @@
-"""阶段1：脚本生成 — 使用 MiniMax M2.7 生成口播脚本。
+"""阶段1：脚本生成 — 格式化口播脚本为标准结构。
 
-单一职责：仅生成口播文本脚本（title、script、sentences、hooks、cta）。
-配图 prompt 的构建由 Agent（SKILL.md）在编排阶段完成，不在此处生成。
+单一职责：接收口播文本（已由 Agent/SKILL.md 生成），输出标准化 JSON 结构。
+不生成任何内容创意，所有内容由 SKILL.md 中 Agent 负责。
 
-M2.7 通过 Anthropic 兼容接口调用，端点：/anthropic/v1/messages
-script 字段使用 | 分隔多句，供语义对齐流水线使用。
+SKILL.md 负责：
+- 接收用户模糊/部分输入
+- 补全为完整口播内容（口语化、多角度、情感层次）
+- 控制句数、节奏、情感曲线
+
+本模块负责：
+- 将文本格式化为标准 JSON（title、script、sentences、hooks、cta）
+- script 字段使用 | 分隔多句，供语义对齐流水线使用
 """
+
 import json
 import logging
+import re
 from typing import List, TypedDict
-
-from .api_client import call_anthropic_api
 
 logger = logging.getLogger(__name__)
 
 
 class ScriptData(TypedDict):
-    """生成的脚本数据结构（纯文案，不含视觉 prompt）。"""
     title: str
-    script: str             # 用 | 分隔的多句文本
-    sentences: List[str]    # 解析后的句子列表（不含 |）
-    hooks: List[str]        # 钩子列表（开头吸引力句）
-    cta: str                # 结尾号召
+    script: str
+    sentences: List[str]
+    hooks: List[str]
+    cta: str
 
 
-SYSTEM_PROMPT = """你是一位抖音内容创作专家。请根据用户给定的主题，生成适合抖音口播的短视频脚本。
-
-**仅输出口播文本，不生成任何图片/视觉描述。**
-
-输出格式（JSON，必须严格遵循）：
-{
-  "title": "视频标题（吸引眼球，20字以内）",
-  "script": "口播脚本正文，用 | 分隔多句。每句独立表达一个完整意思，5-20 字。如：你有没有想过未来会改变？| 就在昨天，一件事震惊了所有人。| 看完你就会有答案。",
-  "hooks": ["开头钩子1：3秒抓人", "开头钩子2：悬念或痛点"],
-  "cta": "结尾号召行动（如：关注我，带你xxx）"
-}
-
-核心要求：
-1. **script** 字段必须使用 | 作为句子分隔符。
-2. 每句长度 5-20 字，**口语化**表达，不要书面语。
-3. 第一句必须是"钩子"——3 秒内吸引观众停留。
-4. 最后一句要有"行动暗示"（但不要太生硬）。
-5. 总句数建议 10-20 句（约 30-60 秒视频）。
-6. 不要包含 emoji、标签、# 等非口播内容。
-7. 不要输出任何图片描述、配图提示词、style_prompt 等视觉相关字段。
-"""
+def _extract_title(raw_lines: List[str]) -> str:
+    """从内容中提取或生成标题。"""
+    # 优先找以 # 开头的行作为标题
+    for line in raw_lines:
+        line = line.strip()
+        if line.startswith("#"):
+            return line.lstrip("#").strip()
+    # 否则取第一句的前15字
+    if raw_lines:
+        return raw_lines[0].strip()[:15]
+    return "未命名视频"
 
 
-async def _generate_script_content(topic: str) -> str:
-    """调用 MiniMax M2.7 API 生成脚本内容。"""
-    return await call_anthropic_api(
-        prompt=topic,
-        model="MiniMax-M2.7",
-        system=SYSTEM_PROMPT,
-        max_tokens=4096,
-        temperature=0.7,
-    )
+def _identify_hooks(sentences: List[str]) -> List[str]:
+    """识别前1-2句作为开头钩子。"""
+    return sentences[:2] if len(sentences) >= 2 else sentences
 
 
-async def _parse_script(topic: str) -> ScriptData:
-    """调用 API 并解析 JSON 脚本。"""
-    raw = await _generate_script_content(topic)
-    text = raw.strip()
-    start_idx = text.find('{')
-    end_idx = text.rfind('}')
-
-    if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
-        text = text[start_idx:end_idx + 1]
-
-    data = json.loads(text)
-    for field in ("title", "script", "hooks", "cta"):
-        if field not in data:
-            raise ValueError(f"脚本缺少字段: {field}")
-
-    script_str = str(data["script"])
-    sentences = [s.strip() for s in script_str.split("|") if s.strip()]
-
-    if len(sentences) < 2:
-        raise ValueError(f"脚本句子数过少（{len(sentences)}句），请检查 | 分隔符")
-
-    return ScriptData(
-        title=str(data["title"]),
-        script=script_str,
-        sentences=sentences,
-        hooks=list(data["hooks"]),
-        cta=str(data["cta"]),
-    )
+def _extract_cta(raw_text: str) -> str:
+    """从内容末尾提取 CTA，或生成默认 CTA。"""
+    # 查找常见的 CTA 模式
+    cta_patterns = [
+        r"(?:关注|点赞|评论|收藏|转发)[我你]?[，,].*",
+        r".*[吗呀吧呢]|[呀啊吧呢]$",
+    ]
+    for pattern in cta_patterns:
+        match = re.search(pattern, raw_text)
+        if match:
+            return match.group(0).strip()
+    return "关注我带你了解更多"
 
 
-async def generate_script(topic: str) -> ScriptData:
-    """生成口播脚本（纯文案）。
+def _split_sentences(text: str) -> List[str]:
+    """将文本按 | 或换行分割为句子列表。"""
+    # 优先用 | 分隔
+    if "|" in text:
+        sentences = [s.strip() for s in text.split("|") if s.strip()]
+        if sentences:
+            return sentences
+
+    # 否则按换行分割
+    lines = [l.strip() for l in text.split("\n") if l.strip()]
+    # 过滤掉标题行（以 # 开头）
+    sentences = [l for l in lines if not l.startswith("#")]
+
+    # 如果分割后句子太长，尝试进一步拆分
+    result = []
+    for s in sentences:
+        # 跳过 CTA 行（如果 CTA 已经单独提取）
+        if s.startswith("关注") or s.startswith("点赞"):
+            continue
+        result.append(s)
+    return result if result else sentences
+
+
+def format_script(
+    content: str,
+    title: str | None = None,
+    cta: str | None = None,
+) -> ScriptData:
+    """将口播文本格式化为标准脚本结构。
+
+    职责分离：
+    - SKILL.md/Agent 生成 content（完整口语化内容）
+    - 本函数仅负责格式化（分割、提取、组装）
 
     Args:
-        topic: 视频主题
+        content: 完整的口播文本，用 | 分隔句子，或多行文本
+        title: 可选，指定标题（否则自动提取）
+        cta: 可选，指定 CTA（否则自动生成）
 
     Returns:
         ScriptData，包含 title、script、sentences、hooks、cta
     """
-    logger.info("📝 正在生成脚本，主题: %s", topic)
-    result = await _parse_script(topic)
-    logger.info(
-        "✅ 脚本生成完成: %s（%d 句）",
-        result["title"], len(result["sentences"])
+    raw_lines = content.strip().split("\n")
+
+    # 提取标题
+    final_title = title or _extract_title(raw_lines)
+
+    # 分割句子
+    sentences = _split_sentences(content)
+
+    # 识别钩子
+    hooks = _identify_hooks(sentences)
+
+    # 提取或生成 CTA
+    final_cta = cta or _extract_cta(content)
+
+    # 组装 script 字段
+    script_str = " | ".join(sentences)
+
+    logger.info("✅ 脚本格式化完成: %s（%d 句）", final_title, len(sentences))
+
+    return ScriptData(
+        title=final_title,
+        script=script_str,
+        sentences=sentences,
+        hooks=hooks,
+        cta=final_cta,
     )
-    return result
+
+
+async def generate_script(topic: str) -> ScriptData:
+    """.. deprecated:: 请使用 format_script()"""
+    logger.warning("⚠️ generate_script() 已弃用，内容生成请在 SKILL.md 中由 Agent 完成")
+    return format_script(topic)
