@@ -49,17 +49,22 @@ def _identify_hooks(sentences: List[str]) -> List[str]:
 
 def _extract_cta(raw_text: str) -> str:
     """从内容末尾提取 CTA，或生成默认 CTA。"""
-    # 查找常见的 CTA 模式
+    # 匹配到 | 分隔符为止，避免贪婪匹配整个文本
     cta_patterns = [
-        r"(?:关注|点赞|评论|收藏|转发)[我你]?[，,].*",
-        r".*[吗呀吧呢]|[呀啊吧呢]$",
+        r"(?:关注|点赞|评论|收藏|转发)[我你]?[，,，]?[^|]*",
     ]
+    # Search from the end — take the last CTA-like segment
     for pattern in cta_patterns:
-        match = re.search(pattern, raw_text)
-        if match:
-            return match.group(0).strip()
+        matches = list(re.finditer(pattern, raw_text))
+        if matches:
+            return matches[-1].group(0).strip()
+    # Fallback: check last segment for CTA keywords
+    segments = [s.strip() for s in raw_text.split("|") if s.strip()]
+    if segments:
+        last = segments[-1]
+        if re.search(r"(?:关注|点赞|评论|收藏|转发)", last):
+            return last
     return "关注我带你了解更多"
-
 
 def _split_sentences(text: str) -> List[str]:
     """将文本按 | 或换行分割为句子列表。"""

@@ -454,12 +454,12 @@ async def cmd_compose(args):
     segments = data.get("segments") or data
 
     video_path = await compose_sequential(
-        tts_path=Path(args.tts),
+        tts_path=Path(args.tts).resolve(),
         segments=segments,
-        music_path=Path(args.music),
-        output_path=Path(args.output) if args.output else None,
+        music_path=Path(args.music).resolve(),
+        output_path=Path(args.output).resolve() if args.output else None,
         transition=args.transition,
-        hook_video_path=Path(args.hook_video) if args.hook_video else None,
+        hook_video_path=Path(args.hook_video).resolve() if args.hook_video else None,
     )
     print_json({"path": str(video_path)})
 
@@ -501,7 +501,7 @@ async def cmd_burn_subs(args):
         title=video_path.stem,
         add_subtitles=True,
         add_aigc=False,
-        output_path=Path(args.output) if args.output else None,
+        output_path=Path(args.output).resolve() if args.output else None,
         srt_path=srt_path,
         subtitle_model=args.model,
         subtitle_language=args.language,
