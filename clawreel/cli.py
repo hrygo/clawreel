@@ -4,18 +4,20 @@ from typing import Optional, List, Dict, Union, Any, Tuple
 """ClawReel CLI — AI 短视频语义对齐流水线。
 
 命令分类：
-  【主流程命令 - 对应 SOP 7 阶段】
-    check      Phase 0: 资源扫描 + 成本估算
-    script     Phase 1: 脚本生成（输出含 sentences）
-    align      Phase 2: TTS + 语义对齐 → segments JSON
-    assets     Phase 3: 图片生成（由 segments 驱动）
-    compose    Phase 4: 视频合成（T2V/I2V 片头 + FFmpeg 转场）
-    post       Phase 5: 后期处理（字幕、AIGC 水印）
-    publish    Phase 6: 多平台发布
+  【主流程命令 - 对应 SOP 8 阶段】
+    check      Phase 1: 资源扫描 + 成本估算
+    music      Phase 1: 背景音乐生成
+    script     Phase 2: 脚本生成（输出含 sentences）
+    format     Phase 2: 格式化口播内容为标准 JSON
+    align      Phase 4: TTS + 语义对齐 → segments JSON
+    assets     Phase 5: 图片生成（由 segments 驱动）
+    video      Phase 5: 6 秒片头视频生成 (I2V/T2V)
+    compose    Phase 6: 视频合成（FFmpeg 转场）
+    post       Phase 7: 后期处理（字幕、AIGC 水印）
+    publish    Phase 8: 多平台发布
 
   【辅助/调试命令】
     tts        独立 TTS 测试（非流程命令，返回 word_timestamps）
-    music      背景音乐生成（可在任意阶段使用）
     burn-subs  Whisper 字幕提取 + FFmpeg 烧录（独立工具）
 """
 import argparse
@@ -564,27 +566,27 @@ def main():
     # 主流程命令（对应 SOP 7 阶段）
     # ─────────────────────────────────────────────────────────────────────────────
 
-    # Phase 0: check
-    p = subparsers.add_parser("check", help="[Phase 0] 扫描已有资源 + 成本估算")
+    # Phase 1: check
+    p = subparsers.add_parser("check", help="[Phase 1] 扫描已有资源 + 成本估算")
     p.add_argument("--topic", "-t", help="视频主题（用于过滤文件名）")
     p.add_argument("--assets-dir", default="assets", help="资源目录（默认 assets）")
     p.add_argument("--llm-suggest", action="store_true", help="启用 LLM 智能复用建议")
 
-    # Phase 1: script (deprecated) / format
+    # Phase 2: script (deprecated) / format
     p = subparsers.add_parser(
-        "script", help="[Phase 1] 生成口播脚本（已弃用，请使用 format）"
+        "script", help="[Phase 2] 生成口播脚本（已弃用，请使用 format）"
     )
     p.add_argument("--topic", "-t", required=True, help="视频主题")
 
-    p = subparsers.add_parser("format", help="[Phase 1] 格式化口播内容为标准 JSON")
+    p = subparsers.add_parser("format", help="[Phase 2] 格式化口播内容为标准 JSON")
     p.add_argument(
         "--content", "-c", required=True, help="完整口播内容（用 | 或换行分隔句子）"
     )
     p.add_argument("--title", default=None, help="视频标题（默认自动提取）")
     p.add_argument("--cta", default=None, help="结尾 CTA（默认自动生成）")
 
-    # Phase 2: align
-    p = subparsers.add_parser("align", help="[Phase 2] TTS + 语义对齐 → segments JSON")
+    # Phase 4: align
+    p = subparsers.add_parser("align", help="[Phase 4] TTS + 语义对齐 → segments JSON")
     p.add_argument("--text", required=True, help="配音文本")
     p.add_argument("--voice", default="zh-CN-XiaoxiaoNeural", help="音色 ID")
     p.add_argument("--split-long", action="store_true", help="自动拆分 >5s 长段")
@@ -600,8 +602,8 @@ def main():
         help="LLM 预生成的配图提示词 JSON 数组（与 sentences 对应，已被 --script 取代）",
     )
 
-    # Phase 3: assets
-    p = subparsers.add_parser("assets", help="[Phase 3] 图片生成")
+    # Phase 5: assets
+    p = subparsers.add_parser("assets", help="[Phase 5] 图片生成")
     p.add_argument(
         "--segments", "-s", required=True, metavar="PATH", help="segments JSON 文件"
     )
@@ -610,16 +612,16 @@ def main():
         "--video", action="store_true", help="一并生成 6 秒片头视频 (I2V/T2V)"
     )
 
-    # Phase 3.5: video (Explicit hook video generation)
+    # Phase 5: video (hook video generation)
     p = subparsers.add_parser(
-        "video", help="[Phase 3.5] 生成 6 秒片头视频 (I2V/T2V 优先)"
+        "video", help="[Phase 5] 生成 6 秒片头视频 (I2V/T2V 优先)"
     )
     p.add_argument(
         "--segments", "-s", required=True, metavar="PATH", help="segments JSON 文件"
     )
 
-    # Phase 4: compose
-    p = subparsers.add_parser("compose", help="[Phase 4] 视频合成（FFmpeg 转场）")
+    # Phase 6: compose
+    p = subparsers.add_parser("compose", help="[Phase 6] 视频合成（FFmpeg 转场）")
     p.add_argument("--tts", required=True, metavar="PATH")
     p.add_argument("--segments", "-s", required=True, metavar="PATH")
     p.add_argument("--music", required=True, metavar="PATH")
@@ -636,8 +638,8 @@ def main():
         help="外部片头视频路径（如：video_head.mp4），将覆盖第一段素材",
     )
 
-    # Phase 5: post
-    p = subparsers.add_parser("post", help="[Phase 5] 后期处理（字幕 + AIGC）")
+    # Phase 7: post
+    p = subparsers.add_parser("post", help="[Phase 7] 后期处理（字幕 + AIGC）")
     p.add_argument("--video", required=True)
     p.add_argument("--title", required=True)
     p.add_argument("--srt", default=None)
@@ -654,8 +656,8 @@ def main():
     p.add_argument("--font-size", type=int, default=16, help="字幕字号大小")
     p.add_argument("--output", "-o", default=None, help="输出文件路径")
 
-    # Phase 6: publish
-    p = subparsers.add_parser("publish", help="[Phase 6] 多平台发布")
+    # Phase 8: publish
+    p = subparsers.add_parser("publish", help="[Phase 8] 多平台发布")
     p.add_argument("--video", required=True)
     p.add_argument("--title", required=True)
     p.add_argument(

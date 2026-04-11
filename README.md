@@ -23,37 +23,40 @@
 
 ## 🔄 工作流概览 (Workflow Overview)
 
-**ClawReel** 将完整的视频创作拆解为 **6 个可独立执行的阶段**，Phase 0 为强制性的零成本资源检查，后续每个阶段均支持 HITL 审核点、断点续作与资源复用。
+**ClawReel** 将完整的视频创作拆解为 **8 个可独立执行的阶段**，Phase 1 为强制性的零成本资源检查，后续每个阶段均支持 HITL 审核点、断点续作与资源复用。
 
 ```mermaid
 %%{init: {'theme': 'base', 'themeVariables': {'fontSize': '16px'}}}%%
 graph LR
-    A["✅ Phase 0\nCheck"] --> B["📝 Phase 1\nScript"]
-    B --> C["🔊 Phase 2\nTTS + Align"]
-    C --> D["🎨 Phase 3\nAssets"]
-    D --> E["🎬 Phase 4\nCompose"]
-    E --> F["✨ Phase 5\nPost"]
-    F --> G["🚀 Phase 6\nPublish"]
+    A["✅ Phase 1\nCheck + Music"] --> B["📝 Phase 2\nScript"]
+    B --> C["🎨 Phase 3\nVisual Prompt"]
+    C --> D["🔊 Phase 4\nTTS + Align"]
+    D --> E["🖼️ Phase 5\nAssets"]
+    E --> F["🎬 Phase 6\nCompose"]
+    F --> G["✨ Phase 7\nPost"]
+    G --> H["🚀 Phase 8\nPublish"]
 
-    classDef phase0 fill:#e0e7ff,stroke:#6366f1,stroke-width:2px,color:#333
-    classDef phase1 fill:#dbeafe,stroke:#3b82f6,stroke-width:2px,color:#333
-    classDef phase2 fill:#dcfce7,stroke:#22c55e,stroke-width:2px,color:#333
+    classDef phase1 fill:#e0e7ff,stroke:#6366f1,stroke-width:2px,color:#333
+    classDef phase2 fill:#dbeafe,stroke:#3b82f6,stroke-width:2px,color:#333
     classDef phase3 fill:#fef9c3,stroke:#eab308,stroke-width:2px,color:#333
-    classDef phase4 fill:#ffe4e6,stroke:#f43f5e,stroke-width:2px,color:#333
-    classDef phase5 fill:#f3e8ff,stroke:#a855f7,stroke-width:2px,color:#333
-    classDef phase6 fill:#d1fae5,stroke:#10b981,stroke-width:2px,color:#333
+    classDef phase4 fill:#dcfce7,stroke:#22c55e,stroke-width:2px,color:#333
+    classDef phase5 fill:#fef9c3,stroke:#eab308,stroke-width:2px,color:#333
+    classDef phase6 fill:#ffe4e6,stroke:#f43f5e,stroke-width:2px,color:#333
+    classDef phase7 fill:#f3e8ff,stroke:#a855f7,stroke-width:2px,color:#333
+    classDef phase8 fill:#d1fae5,stroke:#10b981,stroke-width:2px,color:#333
 
-    class A phase0; class B phase1; class C phase2; class D phase3
-    class E phase4; class F phase5; class G phase6
+    class A phase1; class B phase2; class C phase3; class D phase4
+    class E phase5; class F phase6; class G phase7; class H phase8
 ```
 
-* **Phase 0 – Check** ⚠️ 必做：零成本扫描现有资源，智能判定生成方案。
-* **Phase 1 – Script**：生成剧本与口播词，输出 `|` 分隔的句子列表。
-* **Phase 2 – TTS + Align**：Edge TTS 配音 + 逐词时间戳对齐 → `segments.json`（声音、字幕、画面三同步）。
-* **Phase 3 – Assets**：按 `segments.json` 批量生成图片（每句一张，语义相关）。
-* **Phase 4 – Compose**：FFmpeg 按精确时长合成（不再均分）。
-* **Phase 5 – Post**：FFmpeg SRT 字幕烧录、AIGC 标识。
-* **Phase 6 – Publish**：一键发布至抖音、小红书。
+* **Phase 1 – Check + Music** ⚠️ 必做：零成本扫描现有资源，智能判定生成方案；按主题生成背景音乐。
+* **Phase 2 – Script**：Agent 生成完整口播内容 → `format` 命令格式化，输出标准 JSON。
+* **Phase 3 – Visual Prompt**：**核心步骤** — 构建生图 Prompt，决定视频画面质量。
+* **Phase 4 – TTS + Align**：Edge TTS 配音 + 逐词时间戳对齐 → `segments.json`（声音、字幕、画面三同步）。
+* **Phase 5 – Assets**：按 `segments.json` 批量生成图片（每句一张，语义相关），可选片头视频。
+* **Phase 6 – Compose**：FFmpeg 按精确时长合成（不再均分）。
+* **Phase 7 – Post**：FFmpeg SRT 字幕烧录、AIGC 标识。
+* **Phase 8 – Publish**：一键发布至抖音、小红书。
 
 ---
 
@@ -79,37 +82,39 @@ curl -fsSL https://raw.githubusercontent.com/hrygo/clawreel/main/install.sh | ba
 ### 语义对齐流水线
 
 ```bash
-# Phase 0: 资源检查（零成本）
+# Phase 1: 资源检查 + 背景音乐
 clawreel check --topic "AI未来趋势"
+clawreel music --topic "AI未来趋势" --duration 60
 
-# Phase 1: 格式化口播内容（内容由 SKILL.md/Agent 生成）
+# Phase 2: 格式化口播内容（内容由 SKILL.md/Agent 生成）
 clawreel format --content "你有没有想过，未来会是什么样？| 就在昨天，一个AI震惊了所有人。| 看完你就明白了。"
 
-# Phase 2: TTS + 语义对齐 → segments.json
+# Phase 3: Agent 构建生图 Prompt（写入 script JSON 的 image_prompts 字段，无 CLI 命令）
+
+# Phase 4: TTS + 语义对齐 → segments.json
 clawreel align \
   --text "你有没有想过，未来AI会超越人类？| 就在昨天，一件事震惊了所有人。" \
   --script assets/script_AI未来趋势_20260408.json \
   --output assets/segments_AI未来趋势_20260408.json \
   --split-long
 
-# Phase 3: 按 segments 批量生成图片（每句一张）
+# Phase 5: 按 segments 批量生成图片（每句一张）
 clawreel assets --segments assets/segments_AI未来趋势_20260408.json --max-concurrent 3
 
-# Phase 4: 精确时长合成（含片头视频）
+# Phase 6: 精确时长合成（含片头视频）
 clawreel compose \
   --tts assets/tts_output.mp3 \
   --segments assets/segments_AI未来趋势_20260408.json \
   --music assets/bg_music.mp3 \
   --transition fade
 
-# Phase 5: 后期处理（字幕 + AIGC）
+# Phase 7: 后期处理（字幕 + AIGC）
 clawreel post --video output/composed.mp4 --title "AI觉醒" --font-size 16
 
-# Phase 6: 多平台发布
+# Phase 8: 多平台发布
 clawreel publish --video output/final.mp4 --title "AI觉醒" --platforms douyin xiaohongshu
 
 # 辅助命令（可选）
-clawreel music --prompt "轻快背景音乐" --duration 60
 clawreel burn-subs --video output/composed.mp4 --model medium
 ```
 

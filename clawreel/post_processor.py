@@ -1,5 +1,5 @@
 from typing import Optional, List, Dict, Union, Any, Tuple
-"""阶段4：后期处理 - 字幕、封面、AIGC标识.
+"""Phase 7: 后期处理 - 字幕、封面、AIGC标识.
 
 字幕: TTS SRT 优先 → 同名 SRT → Whisper 兜底 → FFprobe 兜底。
 封面: image-01 生成 3 张，关键内容偏上

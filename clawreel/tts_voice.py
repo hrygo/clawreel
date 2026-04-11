@@ -1,4 +1,4 @@
-"""阶段1：TTS配音 — 使用统一 api_client。
+"""Phase 4: TTS配音 — 使用统一 api_client。
 
 采样率使用 config.AUDIO_SAMPLE_RATE（44100 Hz）。
 字幕: 由 segment_aligner 基于逐词时间戳生成句级 SRT，每句一行。
@@ -77,7 +77,7 @@ async def generate_voice(
     edge_voice = voice_id or edge_config.get("voice_id") or "zh-CN-XiaoxiaoNeural"
     minimax_voice = minimax_config.get("voice_id") or "female-shaonv"
 
-    # ── 阶段1: Edge TTS 始终优先尝试，指数回避重试 3 次 ─────────────────────
+    # ── Step 1: Edge TTS 始终优先尝试，指数回避重试 3 次 ─────────────────────
     # 注意：即使 TTS_PROVIDER = "minimax"，Edge 仍优先尝试（高质量 + 逐词时间戳）
     if provider == "edge" or provider not in ("minimax",):
         max_retries = 3
@@ -98,7 +98,7 @@ async def generate_voice(
                 else:
                     logger.error("❌ Edge TTS 重试全部失败，降级 MiniMax TTS: %s", e)
 
-    # ── 阶段2: MiniMax TTS（无逐词时间戳）────────────────────────────────────
+    # ── Step 2: MiniMax TTS（无逐词时间戳）────────────────────────────────────
     result = await _generate_minimax_voice(
         text, output_path, minimax_voice, srt_path, minimax_config
     )

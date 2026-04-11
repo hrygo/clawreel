@@ -1,5 +1,5 @@
 from typing import Optional, List, Dict, Union, Any, Tuple
-"""阶段2c：音乐生成 — 使用统一 api_client。
+"""Phase 1: 音乐生成 — 使用统一 api_client。
 
 模型: music-2.5+，is_instrumental=true。
 异步提交 + 轮询。

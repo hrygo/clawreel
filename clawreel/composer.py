@@ -1,4 +1,4 @@
-"""阶段3：音视频合成 — FFmpeg 多图转场合成。
+"""Phase 6: 音视频合成 — FFmpeg 多图转场合成。
 
 流水线：按语义分段的精确时长合成。
 每张图持续 segments[i].duration_sec 秒（来自 Edge TTS 逐词时间戳）。
@@ -92,14 +92,14 @@ async def compose_sequential(
         """优先复用已有图片，避免重复生成。
 
         优先级：
-        1. seg_{i:03d}_0.jpg（Phase 3 assets 命令生成）
+        1. seg_{i:03d}_0.jpg（Phase 5 assets 命令生成）
         2. body_{i:03d}_0.jpg（composer 旧版本兼容）
         3. 生成新图片
         """
-        # 1️⃣ 优先使用 Phase 3 生成的 seg 图片
+        # 1️⃣ 优先使用 Phase 5 生成的 seg 图片
         seg_img = image_dir / f"seg_{i:03d}_0.jpg"
         if seg_img.exists():
-            logger.info("✅ 复用 Phase 3 图片: %s", seg_img.name)
+            logger.info("✅ 复用 Phase 5 图片: %s", seg_img.name)
             return i, seg_img
 
         # 2️⃣ 降级到 body 图片（旧版本兼容）
@@ -265,7 +265,7 @@ async def compose_sequential(
 
     # ── Step 6: 清理中间文件 ──────────────────────────────────────────────
     # ⚠️ 只清理 compose 自身产生的临时文件（body_clips、body_xfade）
-    # ⚠️ 绝不清理 assets/images/（Phase 3 生成的图片，应保留复用）
+    # ⚠️ 绝不清理 assets/images/（Phase 5 生成的图片，应保留复用）
     for f in body_dir.glob("*"):
         try:
             f.unlink()
