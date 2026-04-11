@@ -27,9 +27,11 @@ Phase 2  format --content  →  script.json（title, sentences, hooks, cta）
 Phase 3  Agent 编辑         →  script.json（+ image_prompts, style_prompt）
 Phase 4  align --text=<sentences 空格拼接> --script=<script.json>
                              →  tts_output.mp3 + segments.json
+  ⚠️     数据完整性校验      →  检查 index 连续性 + prompt 未被覆盖
 Phase 5  assets             →  seg_*.jpg
 Phase 6  compose            →  composed.mp4
-Phase 7  burn-subs + post   →  final_composed.mp4
+Phase 7  burn-subs(--margin-v) + post → final_composed.mp4
+                             →  final_composed.mp4
 ```
 
 **Phase 4 的 `--text` 构造方法**：从 script JSON 的 `sentences` 数组中取出所有句，用空格拼接。不含 hooks，不含 `#` 标题。代码会自动处理 hook 拼接和去重。
@@ -58,6 +60,16 @@ Phase 7  burn-subs + post   →  final_composed.mp4
 | 用 segments JSON 生成字幕 | 声音-字幕不同步 | 默认用 Whisper `burn-subs` 烧录字幕 |
 | 图片 Prompt 含中文文字 | AI 生图出现乱码文字 | 图片中的文字一律用英文 |
 | 盲目使用 edge TTS | 声音生硬机械 | 追求自然感用 `--provider minimax` |
+| align 后不校验 segments | index 错乱 + prompt 丢失 → 缺图/错图 | Phase 4 后必须执行「数据完整性校验」（见下） |
+| 烧录字幕使用默认底部位置 | 抖音 UI 遮挡底部 1/4 | 用 `--margin-v 550` 上移字幕 |
+
+### 已知 CLI Bug（Agent 侧防护）
+
+| Bug | 表现 | 根因 | Agent 规避 |
+|-----|------|------|-----------|
+| ~~hooks 拼接时 image_prompts 未偏移~~ | ~~已修复：cli.py 自动为 hooks 段补充 prompt~~ | — | — |
+| ~~split_long_segments 重置 index~~ | ~~已修复：统一 reindex_counter~~ | — | — |
+| MiniMax 无词级时间戳 | 时间戳精度降级为字符加权均匀估算 | MiniMax API 不返回逐词时间 | Edge TTS 获取精确时间戳，或接受均匀估算 |
 
 ## STOP GATES（成本防护）
 
@@ -207,7 +219,9 @@ clawreel align \
 - `--script`：Phase 2 保存的 script JSON（align 从中读取 hooks、image_prompts）
 - `--provider`：推荐 `minimax`（自然语音）；`edge`（免费但机械感强）
 - `--voice`：可选，默认从 config 读取
-- `--split-long`：自动拆分 >5s 的长段落
+- `--split-long`：自动拆分 >5s 的长段落（**注意：会重置 segment index，慎用**）
+
+**⚠️ hooks 拼接陷阱**：当 hooks 不在 `--text` 中时，CLI 会把 hooks 插入 sentences 前面，但 `image_prompts` 不同步偏移。**最佳实践**：`--text` 应包含 hooks 文本（与 sentences 空格拼接即可），让 CLI 跳过拼接逻辑。
 
 产出：`assets/tts_output.mp3` + `assets/segments_<主题>_<日期>.json`
 
@@ -215,6 +229,52 @@ clawreel align \
 |-------------|------|------|-----------|
 | `edge`（默认）| 免费 | 机械感强 | 逐词 ~50ms |
 | `minimax` | 付费 | 自然流畅 | 不支持（按字数加权估算降级） |
+
+### Phase 4 后：数据完整性校验（关键！）
+
+align 后 segments JSON 可能有以下数据损坏，**必须在校验后再进入 Phase 5**：
+
+```python
+# 用 Bash 执行此 Python 校验脚本
+python3 -c "
+import json
+with open('assets/segments_<主题>_<日期>.json') as f:
+    segs = json.load(f)
+with open('assets/script_<主题>_<日期>.json') as f:
+    script = json.load(f)
+
+errors = []
+# 1. index 连续性：每个 segment 的 index 必须等于其数组位置
+for i, seg in enumerate(segs['segments']):
+    if seg['index'] != i:
+        errors.append(f'seg[{i}] index={seg[\"index\"]} ≠ expected {i}')
+
+# 2. prompt 未被覆盖：检查是否使用了 CLI 默认模板
+for i, seg in enumerate(segs['segments']):
+    if seg['image_prompt'].startswith('Professional Short Video Scene:'):
+        errors.append(f'seg[{i}] prompt 是 CLI 默认模板，非 Agent 构建')
+
+# 3. image 数量与 sentences 对应
+if len(segs['segments']) != len(script.get('sentences', [])):
+    print(f'⚠️ segments({len(segs[\"segments\"])}) ≠ sentences({len(script[\"sentences\"])})，'
+          f'TTS 可能合并了短句，这是正常的')
+
+if errors:
+    print('❌ 发现问题：')
+    for e in errors: print(f'  - {e}')
+    print('需要修复后再继续')
+else:
+    print('✅ 数据完整性校验通过')
+"
+```
+
+**常见问题及修复**：
+
+| 问题 | 修复方法 |
+|------|---------|
+| index 不连续 | `python3 -c "import json; ..."` 遍历重写 `seg['index'] = i` |
+| prompt 被 CLI 模板覆盖 | 从 script JSON 的 `image_prompts` 按 text 匹配回填 |
+| TTS 合并短句导致段数 < 句数 | 正常现象，但需确保每段有正确的 prompt |
 
 ## Phase 5: 素材生成（图片 + 片头视频）
 
@@ -230,6 +290,28 @@ clawreel video --segments /abs/path/assets/segments_<主题>_<日期>.json
 - 图片保存到 `assets/images/seg_*.jpg`
 
 ⛔ **GATE 3** — 向用户展示 **6-8 张关键帧**图片，确认后继续。
+
+### 增量补图（缺图时）
+
+`clawreel assets` 不支持 `--only`，每次全量生成。若只有少量缺图，用 API 直接补：
+
+```bash
+# 检查缺图
+ls assets/images/seg_*.jpg | sort > /tmp/existing.txt
+python3 -c "
+import json
+with open('assets/segments_<主题>_<日期>.json') as f:
+    segs = json.load(f)
+for seg in segs['segments']:
+    from pathlib import Path
+    idx = seg['index']
+    p = Path(f'assets/images/seg_{idx:03d}_0.jpg')
+    if not p.exists():
+        print(f'MISSING: seg_{idx:03d} → {seg[\"text\"][:30]}')
+"
+```
+
+补图需手动调用 MiniMax Image API 或重跑 `clawreel assets`（全量）。
 
 ## Phase 6: 视频合成
 
@@ -278,17 +360,31 @@ ffmpeg -y \
 
 分两步：先 Whisper 烧录字幕，再添加标题和水印。
 
-```bash
-# Step 1: Whisper 字幕烧录（声音与字幕天然同步）
-clawreel burn-subs --video /abs/path/output/composed.mp4 --model medium --language zh
+### Step 1: 字幕烧录
 
-# Step 2: 标题 + AIGC 水印
-clawreel post --video /abs/path/output/composed.mp4 --title "标题" [--no-subtitles]
+```bash
+# 一步完成：Whisper 转写 + 字幕烧录
+# --margin-v 控制字幕距底部像素数（9:16 竖屏 1920px 高）
+clawreel burn-subs --video /abs/path/output/composed.mp4 --model medium --language zh --margin-v 550
+```
+
+**--margin-v 参考**（9:16 竖屏 1920px 高）：
+
+| 值 | 效果 | 适用场景 |
+|----|------|---------|
+| `0`（默认） | 字幕在屏幕底部 | 无遮挡平台 |
+| `550` | 字幕上移至底部 1/4 以上 | 抖音（底部有 UI 遮挡） |
+| `700` | 字幕在屏幕中央偏下 | 强调画面底部内容时 |
+
+### Step 2: 标题 + AIGC 水印
+
+```bash
+clawreel post --video /abs/path/output/composed.subtitled.mp4 --title "标题" --no-subtitles
 ```
 
 字幕来源优先级：Whisper burn-subs（推荐） > 显式 SRT > segments JSON（可能不同步）
 
-产出：`output/final_composed.mp4`
+产出：`output/final_composed.subtitled.mp4`
 
 ## Phase 8: 发布
 

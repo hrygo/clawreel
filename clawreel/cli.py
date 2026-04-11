@@ -302,6 +302,14 @@ async def cmd_align(args):
             # 同步更新 sentences 列表
             if sentences:
                 sentences = hooks_text + sentences
+            # 同步偏移 image_prompts：为 hooks 段补充默认 prompt，保持一一对应
+            if image_prompts and sentences:
+                from .segment_aligner import refine_image_prompt
+                hook_prompts = [refine_image_prompt(h) for h in hooks_text]
+                image_prompts = hook_prompts + image_prompts
+                logger.info(
+                    "✅ image_prompts 已同步偏移（+%d hook prompts）", len(hooks_text)
+                )
             logger.info("✅ hooks 文本拼接到正文前面，hooks 数量=%d", hooks_count)
 
     result = await generate_voice(
@@ -485,6 +493,7 @@ async def cmd_post(args):
         subtitle_model=getattr(args, "subtitle_model", "medium"),
         subtitle_language=getattr(args, "subtitle_language", "auto"),
         font_size=getattr(args, "font_size", 16),
+        margin_v=getattr(args, "margin_v", 0),
     )
     print_json({"path": str(path)})
 
@@ -512,6 +521,7 @@ async def cmd_burn_subs(args):
         srt_path=srt_path,
         subtitle_model=args.model,
         subtitle_language=args.language,
+        margin_v=getattr(args, "margin_v", 0),
     )
     print_json({"success": True, "srt": str(srt_path)})
 
@@ -655,6 +665,7 @@ def main():
         "--segments", default=None, help="segments JSON 路径（用于读取 TTS 生成的字幕）"
     )
     p.add_argument("--font-size", type=int, default=16, help="字幕字号大小")
+    p.add_argument("--margin-v", type=int, default=0, help="字幕距底部像素数（0=默认，550=避开抖音底部UI）")
     p.add_argument("--output", "-o", default=None, help="输出文件路径")
 
     # Phase 8: publish
@@ -708,6 +719,7 @@ def main():
     )
     p.add_argument("--language", default="auto")
     p.add_argument("--word-timestamps", action="store_true")
+    p.add_argument("--margin-v", type=int, default=0, help="字幕距底部像素数（0=默认，550=避开抖音底部UI）")
 
     args = parser.parse_args()
 

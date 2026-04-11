@@ -190,11 +190,13 @@ def split_long_segments(segments: List[ScriptSegment]) -> List[ScriptSegment]:
         拆分后的段落列表（时长全部 <= MAX_SEGMENT_DURATION）
     """
     result: List[ScriptSegment] = []
-    sub_index_counter = 0
+    reindex_counter = 0
 
     for seg in segments:
         if seg["duration_sec"] <= MAX_SEGMENT_DURATION:
+            seg["index"] = reindex_counter
             result.append(seg)
+            reindex_counter += 1
             continue
 
         # 按 CHUNK_DELIMITERS 拆分
@@ -239,7 +241,7 @@ def split_long_segments(segments: List[ScriptSegment]) -> List[ScriptSegment]:
         cursor = seg["start_sec"]
         for j, (sub_text, sub_dur) in enumerate(zip(merged_texts, merged_durations)):
             result.append(ScriptSegment(
-                index=sub_index_counter,
+                index=reindex_counter,
                 text=sub_text.strip(),
                 start_sec=cursor,
                 end_sec=cursor + sub_dur,
@@ -248,7 +250,7 @@ def split_long_segments(segments: List[ScriptSegment]) -> List[ScriptSegment]:
                 is_hook=(sub_index_counter == 0),
             ))
             cursor += sub_dur
-            sub_index_counter += 1
+            reindex_counter += 1
 
     return result
 

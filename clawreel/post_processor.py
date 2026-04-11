@@ -81,7 +81,8 @@ def _burn_subtitles(video_path: Path, srt_path: Path, output_path: Path, font_si
             "-i", video_abs,
             "-vf",
             f"subtitles={srt_abs}:force_style='FontName={font_name},FontSize={font_size},"
-            f"PrimaryColour=&HFFFFFF&,OutlineColour=&H000000&,Outline=2'",
+            f"PrimaryColour=&HFFFFFF&,OutlineColour=&H000000&,Outline=2"
+            + (f",MarginV={margin_v}" if margin_v > 0 else "") + "'",
             *FFMPEG_VIDEO_OPTS,
             "-map", "0:v",          # 明确选择视频流（避免选错 AAC 流）
             "-map", "0:a",          # 明确选择音频流
@@ -177,6 +178,7 @@ async def post_process(
     subtitle_model: str = "medium",
     subtitle_language: str = "auto",
     font_size: int = 16,
+    margin_v: int = 0,
 ) -> Path:
     """后期处理主流程.
 
@@ -191,6 +193,7 @@ async def post_process(
         subtitle_model: Whisper 模型大小（default/medium/large/small/tiny）
         subtitle_language: 字幕语言代码（auto/zh/en 等）
         font_size: 字幕字号大小（缺省 16）
+        margin_v: 字幕距底部像素数（0=默认底部，550=避开抖音底部UI）
 
     Returns:
         处理后的视频路径
@@ -264,7 +267,7 @@ async def post_process(
 
         if resolved_srt and resolved_srt.exists():
             try:
-                current = _burn_subtitles(current, resolved_srt, current.with_suffix(".subtitled.mp4"), font_size=font_size)
+                current = _burn_subtitles(current, resolved_srt, current.with_suffix(".subtitled.mp4"), font_size=font_size, margin_v=margin_v)
             except Exception as e:
                 logger.error(f"❌ 字幕烧录失败: {e}")
         else:
