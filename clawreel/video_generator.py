@@ -101,7 +101,7 @@ async def _try_i2v_then_t2v(
     output_path: Path,
 ) ->Optional[Path]:
     """优先 I2V，失败后降级 T2V（有首帧时）。"""
-    # ① 尝试 I2V（所有模型都支持）
+    # Step 1: 尝试 I2V（所有模型都支持）
     try:
         task_id = await _submit(model, prompt, duration, first_frame=first_frame)
         logger.info("📹 I2V 任务已提交 (model: %s, 首帧: %s), task_id: %s",
@@ -112,7 +112,7 @@ async def _try_i2v_then_t2v(
     except VideoRetryableError as e:
         logger.warning("⚠️ I2V %s 失败（%s），降级 T2V...", model, e)
 
-    # ② I2V 失败 → 降级 T2V（仅 T2V 模型支持）
+    # Step 2: I2V 失败 → 降级 T2V（仅 T2V 模型支持）
     if model not in _T2V_CAPABLE_MODELS:
         logger.info("  模型 %s 不支持 T2V，跳过", model)
         return None

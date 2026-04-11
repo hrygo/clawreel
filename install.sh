@@ -153,7 +153,7 @@ do_install() {
 
 # ── Entry ─────────────────────────────────────────────────────────────────────
 main() {
-    echo -e "${CYAN}[clawreel]${NC} 欢迎使用 AI 短视频自动化流水线 v4.0"
+    echo -e "${CYAN}[clawreel]${NC} 欢迎使用 ClawReel AI 短视频流水线"
     echo ""
 
     if inside_repo; then

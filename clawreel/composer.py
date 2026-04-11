@@ -93,22 +93,22 @@ async def compose_sequential(
 
         优先级：
         1. seg_{i:03d}_0.jpg（Phase 5 assets 命令生成）
-        2. body_{i:03d}_0.jpg（composer 旧版本兼容）
+        2. body_{i:03d}_0.jpg（兼容旧命名）
         3. 生成新图片
         """
-        # 1️⃣ 优先使用 Phase 5 生成的 seg 图片
+        # 1. 优先使用 Phase 5 生成的 seg 图片
         seg_img = image_dir / f"seg_{i:03d}_0.jpg"
         if seg_img.exists():
             logger.info("✅ 复用 Phase 5 图片: %s", seg_img.name)
             return i, seg_img
 
-        # 2️⃣ 降级到 body 图片（旧版本兼容）
+        # 2. 兼容旧命名 body 图片
         body_img = image_dir / f"body_{i:03d}_0.jpg"
         if body_img.exists():
             logger.info("✅ 复用已有图片: %s", body_img.name)
             return i, body_img
 
-        # 3️⃣ 都没有才生成新图片
+        # 3. 都没有才生成新图片
         try:
             logger.info("🖼️ 生成新图片 [%d]: %s", i, seg["image_prompt"][:50])
             img_path_out = await generate_image(

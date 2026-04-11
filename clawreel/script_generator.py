@@ -134,9 +134,3 @@ def format_script(
         hooks=hooks,
         cta=final_cta,
     )
-
-
-async def generate_script(topic: str) -> ScriptData:
-    """.. deprecated:: 请使用 format_script()"""
-    logger.warning("⚠️ generate_script() 已弃用，内容生成请在 SKILL.md 中由 Agent 完成")
-    return format_script(topic)

@@ -28,7 +28,7 @@ import sys
 from pathlib import Path
 
 from .config import ASSETS_DIR, OUTPUT_DIR
-from .script_generator import generate_script, format_script
+from .script_generator import format_script
 from .resource_index import check_resources, llm_check_and_suggest
 from .tts_voice import generate_voice
 from .segment_aligner import align_segments, split_long_segments
@@ -185,12 +185,6 @@ def cmd_check(args):
             result["llm_suggestion"] = {"error": "需要 MINIMAX_API_KEY"}
 
     print_json(result)
-
-
-async def cmd_script(args):
-    """脚本生成，输出含 sentences 字段。"""
-    result = await generate_script(args.topic)
-    print_json(dict(result))
 
 
 async def cmd_format(args):
@@ -548,7 +542,7 @@ def main():
 示例：
   # 完整流程
   clawreel check --topic "AI觉醒"
-  clawreel script --topic "AI觉醒"
+  clawreel format --content "句1 | 句2 | 句3" --title "AI觉醒"
   clawreel align --text "脚本内容" --script assets/script_xxx.json --output assets/segments_xxx.json
   clawreel assets --segments assets/segments_xxx.json
   clawreel compose --tts assets/tts_xxx.mp3 --segments assets/segments_xxx.json --music assets/bg_music.mp3
@@ -556,7 +550,7 @@ def main():
   clawreel publish --video output/final.mp4 --title "AI觉醒" --platforms douyin xiaohongshu
 
   # 辅助命令
-  clawreel music --prompt "轻快背景音乐" --duration 60
+  clawreel music --topic "AI觉醒" --duration 60
   clawreel burn-subs --video output/composed.mp4 --model medium
         """,
     )
@@ -572,12 +566,7 @@ def main():
     p.add_argument("--assets-dir", default="assets", help="资源目录（默认 assets）")
     p.add_argument("--llm-suggest", action="store_true", help="启用 LLM 智能复用建议")
 
-    # Phase 2: script (deprecated) / format
-    p = subparsers.add_parser(
-        "script", help="[Phase 2] 生成口播脚本（已弃用，请使用 format）"
-    )
-    p.add_argument("--topic", "-t", required=True, help="视频主题")
-
+    # Phase 2: format
     p = subparsers.add_parser("format", help="[Phase 2] 格式化口播内容为标准 JSON")
     p.add_argument(
         "--content", "-c", required=True, help="完整口播内容（用 | 或换行分隔句子）"
@@ -714,8 +703,6 @@ def main():
         try:
             if args.command == "check":
                 cmd_check(args)
-            elif args.command == "script":
-                await cmd_script(args)
             elif args.command == "format":
                 await cmd_format(args)
             elif args.command == "tts":
