@@ -352,6 +352,9 @@ clawreel publish --video /abs/path/output/final_composed.mp4 --title "标题" --
 # Phase 0: 资源检查
 clawreel check --topic "主题"
 
+# 背景音乐生成（默认按主题生成，失败时降级用 bg_music_default.mp3）
+clawreel music --topic "主题" --duration 60
+
 # Phase 1: 格式化（输出到 stdout，需手动保存）
 clawreel format --content "内容 | 用|分隔" --title "标题"
 
@@ -370,3 +373,30 @@ clawreel post --video /abs/composed.mp4 --title "标题"
 # Phase 6: 发布
 clawreel publish --video /abs/final.mp4 --title "标题" --platforms douyin xiaohongshu
 ```
+
+## 背景音乐生成
+
+每个视频应按主题生成匹配的背景音乐。`bg_music_default.mp3` 仅作为首次运行的兜底。
+
+```bash
+# 按主题生成（自动命名为 bg_music_<topic>.mp3）
+clawreel music --topic "鹦鹉" --duration 60
+
+# 自定义风格（默认纯器乐）
+clawreel music --prompt "轻快活泼的尤克里里配乐，热带风情" --duration 90 --output /abs/path/assets/bg_music_default.mp3
+
+# 参数说明
+# --prompt     音乐风格描述（中文/英文均可）
+# --duration   时长秒数，默认 60
+# --instrumental 纯器乐（默认开启）
+# --output     输出路径，默认 assets/bg_music_<topic>.mp3
+# --topic      视频主题（用于默认文件名）
+```
+
+**模型**：MiniMax music-2.5，异步提交 + 轮询，最长等待 5 分钟。
+
+**Agent 决策**：
+- **默认行为**：按视频主题生成匹配的背景音乐（宠物→轻快活泼、科技→电子感、美食→温馨治愈）
+- 用户指定风格 → 按用户描述生成
+- 仅当 `music` 命令失败时 → 降级使用 `bg_music_default.mp3`
+
