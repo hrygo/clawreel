@@ -33,7 +33,7 @@ SENTENCE_DELIMITERS = frozenset("。！？.?!|")
 SHORT_SEGMENT_THRESHOLD = 1.0   # 秒；低于此值的短句合并到前一句
 MAX_SEGMENT_DURATION = 5.0      # 秒；超过此值触发拆分
 MIN_CHUNK_DURATION = 2.0         # 秒；拆分后每块至少这么久
-MAX_SENTENCE_COUNT = 30          # 句子数上限
+MAX_SENTENCE_COUNT = 40          # 句子数上限
 
 CHUNK_DELIMITERS = [
     "，", "、",
@@ -102,10 +102,14 @@ def align_segments(
             )
         gap = 0.2
         avail = audio_duration - gap * (len(sentences) - 1) - 0.4
-        per_sent = max(avail / len(sentences), 0.5)
+        total_chars = sum(len(s) for s in sentences)
         cursor = 0.2
         segments: List[ScriptSegment] = []
         for i, sent in enumerate(sentences):
+            # char-weighted: long sentences get more time
+            char_weight = len(sent) / total_chars if total_chars > 0 else 1 / len(sentences)
+            per_sent = char_weight * avail
+            per_sent = max(per_sent, 0.5)
             start_sec = cursor
             end_sec = cursor + per_sent - gap
             cursor = end_sec + gap

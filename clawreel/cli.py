@@ -269,6 +269,17 @@ async def cmd_align(args):
     full_text = args.text
     hooks_count = 0
 
+    # 防御性去重：若 sentences 前几句与 hooks 重复，移除 sentences 中的重复部分
+    # 兼容新旧格式脚本（新格式 sentences 不含 hooks，旧格式可能包含）
+    if hooks_text and sentences:
+        def _clean(s):
+            return CLEAN_CHAR_CLASS_RE.sub("", s).strip()
+
+        while (sentences and hooks_text
+               and _clean(sentences[0]) == _clean(hooks_text[0])):
+            sentences.pop(0)
+            hooks_text.pop(0)
+
     if hooks_text and script_data:
         # 鲁棒性匹配：忽略标点和空白符来检查正文是否已包含 hook
         def clean_str(s):
@@ -295,7 +306,7 @@ async def cmd_align(args):
 
     result = await generate_voice(
         text=full_text,
-        provider="edge",
+        provider=args.provider,
         voice_id=args.voice,
     )
 
@@ -577,7 +588,8 @@ def main():
     # Phase 4: align
     p = subparsers.add_parser("align", help="[Phase 4] TTS + 语义对齐 → segments JSON")
     p.add_argument("--text", required=True, help="配音文本")
-    p.add_argument("--voice", default="zh-CN-XiaoxiaoNeural", help="音色 ID")
+    p.add_argument("--voice", default=None, help="音色 ID（默认从 config 读取）")
+    p.add_argument("--provider", default="edge", choices=["edge", "minimax"], help="TTS 引擎 (默认 edge)")
     p.add_argument("--split-long", action="store_true", help="自动拆分 >5s 长段")
     p.add_argument("--output", "-o", default=None, help="输出路径")
     p.add_argument(

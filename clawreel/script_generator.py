@@ -67,7 +67,13 @@ def _extract_cta(raw_text: str) -> str:
     return "关注我带你了解更多"
 
 def _split_sentences(text: str) -> List[str]:
-    """将文本按 | 或换行分割为句子列表。"""
+    """将文本按 | 或换行分割为句子列表。
+
+    # title 行仅作存档用途，不混入 sentences（避免 TTS 读出 "hashtag title"）。
+    """
+    # 先移除开头的 # title 行（可能带换行）
+    text = re.sub(r"^#\s+[^\n]*\n?", "", text.strip())
+
     # 优先用 | 分隔
     if "|" in text:
         sentences = [s.strip() for s in text.split("|") if s.strip()]
