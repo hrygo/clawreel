@@ -34,7 +34,7 @@ Phase 7  burn-subs(--margin-v) + post → final_composed.mp4
                              →  final_composed.mp4
 ```
 
-**Phase 4 的 `--text` 构造方法**：从 script JSON 的 `sentences` 数组中取出所有句，用空格拼接。不含 hooks，不含 `#` 标题。代码会自动处理 hook 拼接和去重。
+**Phase 4 的 `--text` 构造方法**：从 script JSON 的 `sentences` 数组中取出所有句，**保留标点符号**，用空格拼接。不含 hooks，不含 `#` 标题。代码会自动处理 hook 拼接和去重。标点影响 TTS 语调和停顿，不可省略。
 
 ## 架构原则
 
@@ -63,13 +63,12 @@ Phase 7  burn-subs(--margin-v) + post → final_composed.mp4
 | align 后不校验 segments | index 错乱 + prompt 丢失 → 缺图/错图 | Phase 4 后必须执行「数据完整性校验」（见下） |
 | 烧录字幕使用默认底部位置 | 抖音 UI 遮挡底部 1/4 | 用 `--margin-v 550` 上移字幕 |
 
-### 已知 CLI Bug（Agent 侧防护）
+### 已知限制
 
-| Bug | 表现 | 根因 | Agent 规避 |
-|-----|------|------|-----------|
-| ~~hooks 拼接时 image_prompts 未偏移~~ | ~~已修复：cli.py 自动为 hooks 段补充 prompt~~ | — | — |
-| ~~split_long_segments 重置 index~~ | ~~已修复：统一 reindex_counter~~ | — | — |
-| MiniMax 无词级时间戳 | 时间戳精度降级为字符加权均匀估算 | MiniMax API 不返回逐词时间 | Edge TTS 获取精确时间戳，或接受均匀估算 |
+| 限制 | 影响 | 规避 |
+|------|------|------|
+| MiniMax 无词级时间戳 | 时间戳精度为字符加权均匀估算 | Edge TTS 获取精确时间戳，或接受均匀估算 |
+| `clawreel assets` 无增量模式 | 每次全量生成，缺 1 张也要重跑全部 | 缺图少时手动调 API 补图（见 Phase 5 增量补图）|
 
 ## STOP GATES（成本防护）
 
@@ -215,7 +214,7 @@ clawreel align \
   [--split-long]
 ```
 
-- `--text`：**正文 body only**（不含 hooks、不含 `#` 标题），各句用空格分隔（不是 `|`）
+- `--text`：**正文 body only**（不含 hooks、不含 `#` 标题），各句用空格分隔（不是 `|`）。**必须保留标点符号**（逗号、句号、感叹号），TTS 依赖标点控制语调和停顿，无标点会导致语音生硬
 - `--script`：Phase 2 保存的 script JSON（align 从中读取 hooks、image_prompts）
 - `--provider`：推荐 `minimax`（自然语音）；`edge`（免费但机械感强）
 - `--voice`：可选，默认从 config 读取
@@ -229,6 +228,21 @@ clawreel align \
 |-------------|------|------|-----------|
 | `edge`（默认）| 免费 | 机械感强 | 逐词 ~50ms |
 | `minimax` | 付费 | 自然流畅 | 不支持（按字数加权估算降级） |
+
+**MiniMax 可用音色**（`--voice` 参数，实测可用）：
+
+| voice_id | 风格 | 适用场景 |
+|----------|------|---------|
+| `presenter_male` | 男主持人 | 科技产品介绍、知识科普 |
+| `presenter_women` | 女主持人 | 温和专业感 |
+| `male-qn-qingse` | 青涩男声 | 年轻化内容 |
+| `male-qn-jingying` | 精英男声 | 商务/专业内容 |
+| `male-qn-badao` | 霸道男声 | 强调型内容 |
+| `male-qn-daxuesheng` | 大学生男声 | 校园/轻松风格 |
+| `female-shaonv` | 少女音（默认） | 通用 |
+| `zh-CN-XiaoxiaoNeural` | Edge 中文女声 | Edge 模式默认 |
+
+**试听**：`clawreel tts --text "测试文本" --provider minimax --voice presenter_male`
 
 ### Phase 4 后：数据完整性校验（关键！）
 
@@ -358,9 +372,17 @@ ffmpeg -y \
 
 ## Phase 7: 后期处理
 
-分两步：先 Whisper 烧录字幕，再添加标题和水印。
+根据需要选择是否加字幕。
 
-### Step 1: 字幕烧录
+### 选项 A：不加字幕（直接加标题）
+
+```bash
+clawreel post --video /abs/path/output/composed.mp4 --title "标题" --no-subtitles
+```
+
+### 选项 B：加字幕（Whisper 烧录 + 标题）
+
+#### Step 1: 字幕烧录
 
 ```bash
 # 一步完成：Whisper 转写 + 字幕烧录
@@ -376,7 +398,7 @@ clawreel burn-subs --video /abs/path/output/composed.mp4 --model medium --langua
 | `550` | 字幕上移至底部 1/4 以上 | 抖音（底部有 UI 遮挡） |
 | `700` | 字幕在屏幕中央偏下 | 强调画面底部内容时 |
 
-### Step 2: 标题 + AIGC 水印
+#### Step 2: 标题 + AIGC 水印
 
 ```bash
 clawreel post --video /abs/path/output/composed.subtitled.mp4 --title "标题" --no-subtitles
@@ -384,7 +406,7 @@ clawreel post --video /abs/path/output/composed.subtitled.mp4 --title "标题" -
 
 字幕来源优先级：Whisper burn-subs（推荐） > 显式 SRT > segments JSON（可能不同步）
 
-产出：`output/final_composed.subtitled.mp4`
+产出：`output/final_composed.mp4`
 
 ## Phase 8: 发布
 
@@ -400,7 +422,13 @@ clawreel publish --video /abs/path/output/final_composed.mp4 --title "标题" --
 
 ```bash
 # TTS 音色试听（合成前测试音色效果）
-clawreel tts --text "测试文本" --provider minimax
+clawreel tts --text "测试文本" --provider minimax --voice presenter_male
+
+# 批量试听多个音色（保存到 /tmp 逐个对比）
+for v in presenter_male male-qn-jingying male-qn-badao; do
+  clawreel tts --text "这是${v}音色的测试" --provider minimax --voice "$v" 2>/dev/null     && cp assets/tts_output.mp3 "/tmp/voice_${v}.mp3"
+done
+open /tmp/voice_*.mp3
 ```
 
 ---
