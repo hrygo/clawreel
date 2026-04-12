@@ -75,7 +75,7 @@ async def generate_voice(
     edge_config = TTS_CONFIG.get("providers", {}).get("edge", {})
     minimax_config = TTS_CONFIG.get("providers", {}).get("minimax", {})
     edge_voice = voice_id or edge_config.get("voice_id") or "zh-CN-XiaoxiaoNeural"
-    minimax_voice = minimax_config.get("voice_id") or "female-shaonv"
+    minimax_voice = voice_id or minimax_config.get("voice_id") or "female-shaonv"
 
     # ── Step 1: Edge TTS 始终优先尝试，指数回避重试 3 次 ─────────────────────
     # 注意：即使 TTS_PROVIDER = "minimax"，Edge 仍优先尝试（高质量 + 逐词时间戳）
