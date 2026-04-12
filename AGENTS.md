@@ -43,8 +43,8 @@
 
 ## 断点续传
 
-用户中断时保留当前产物，检查 `assets/` 已有文件判断进度：
-- 有 `script_*.json` → 从 Phase 3 继续
-- 有 `segments_*.json` → 从 Phase 5 继续
-- 有 `seg_*.jpg` → 从 Phase 6 继续
-- 有 `composed.mp4` → 从 Phase 7 继续
+用户中断时保留当前产物，检查项目目录判断进度：
+- `assets/<topic>_<date>/script.json` 存在 → 从 Phase 3 继续
+- `assets/<topic>_<date>/segments.json` 存在 → 从 Phase 5 继续
+- `assets/<topic>_<date>/images/seg_*.jpg` 存在 → 从 Phase 6 继续
+- `output/<topic>_<date>/composed.mp4` 存在 → 从 Phase 7 继续
