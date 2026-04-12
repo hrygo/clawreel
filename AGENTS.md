@@ -1,150 +1,50 @@
-![ClawReel Hero](hero.webp)
+# ClawReel Agent Guide
 
-# ClawReel: The AI Short-Video Production Factory
+> 面向 AI Agent 的操作指南。完整流水线细节见 [SKILL.md](./SKILL.md)。
 
-> **从创意到发布，只需一次对话。**
-> 这是一个专为 **AI 智能体 (Agents)** 打造的**智能体驱动 / 分段编排式**短视频全链路流水线。
+## 你的角色
 
----
+你是 ClawReel 流水线的**创意总监**。你负责内容生成和决策，CLI 负责格式化/合成/发布。
 
-## 💡 为什么选择 ClawReel？ (Utility & Value)
+## 成本控制（强制）
 
-### 对于人类创作者 (For Humans: Control & Efficiency)
-*   **极致高效**：分钟级生成涵盖 脚本、配音、视频、配图与背景音乐 的高质量短视频。
-*   **完全掌控 (HITL)**：拒绝“黑盒同步生成”，每个阶段（脚本、素材、合成）均设有审核点，确保内容符合预期。
-*   **成本透明 (FinOps)**：内置资源查重与复用逻辑，通过 `check` 命令智能判定，平均节省 50%-80% 的模型调用成本。
+1. **调用 `assets` 前**，必须先 `clawreel check --topic "主题"` 展示现有资源
+2. **每个 Stop Gate**，用表格展示关键信息，等用户确认后才继续
+3. 成本超预期时立即暂停汇报
 
-### 对于 AI 智能体 (For Agents: Standard & Reliability)
-*   **标准化接口**：全量 CLI 命令支持，输出统一为极其易读的 **JSON** 格式。
-*   **安全中断协议**：专为 Agent 优化，主动暴露 Checkpoints，方便智能体在关键步骤请求人类授权。
-*   **跨环境部署**：一键安装脚本，自动适配 Claude Code, OpenCode, OpenClaw 等多种环境。
+## 关键规则
 
----
+- CLI 路径一律用**绝对路径**
+- 图片 Prompt 用**英文**，每帧独立完整（生图模型无记忆）
+- `image_prompts` 数组长度**必须等于** `sentences` 数组长度
+- `--text` 只含正文（body only），不含 hooks、不含 `#` 标题，但**必须保留标点符号**
+- align 后必须执行**数据完整性校验**（index 连续性 + prompt 未被覆盖）
 
-## 🔄 工作流概览 (Workflow Overview)
+## 流程速查
 
-**ClawReel** 将完整的视频创作拆解为 **8 个可独立执行的阶段**，Phase 1 为强制性的零成本资源检查，后续每个阶段均支持 HITL 审核点、断点续作与资源复用。
+| Phase | 你做什么 | CLI 命令 |
+|-------|---------|---------|
+| 1 | 确认主题和风格 | `check` / `music` |
+| 2 | 生成口播脚本 | `format` |
+| 3 | **构建生图 Prompt**（最关键） | — |
+| 4 | 选择 TTS 音色和 provider | `align` |
+| 5 | 确认图片质量 | `assets` |
+| 6 | 选择转场效果 | `compose` |
+| 7 | 决定是否加字幕 | `burn-subs` / `post` |
+| 8 | 生成发布文案 | `publish` |
 
-```mermaid
-%%{init: {'theme': 'base', 'themeVariables': {'fontSize': '16px'}}}%%
-graph LR
-    A["✅ Phase 1\nCheck + Music"] --> B["📝 Phase 2\nScript"]
-    B --> C["🎨 Phase 3\nVisual Prompt"]
-    C --> D["🔊 Phase 4\nTTS + Align"]
-    D --> E["🖼️ Phase 5\nAssets"]
-    E --> F["🎬 Phase 6\nCompose"]
-    F --> G["✨ Phase 7\nPost"]
-    G --> H["🚀 Phase 8\nPublish"]
+## 常见陷阱
 
-    classDef phase1 fill:#e0e7ff,stroke:#6366f1,stroke-width:2px,color:#333
-    classDef phase2 fill:#dbeafe,stroke:#3b82f6,stroke-width:2px,color:#333
-    classDef phase3 fill:#fef9c3,stroke:#eab308,stroke-width:2px,color:#333
-    classDef phase4 fill:#dcfce7,stroke:#22c55e,stroke-width:2px,color:#333
-    classDef phase5 fill:#fef9c3,stroke:#eab308,stroke-width:2px,color:#333
-    classDef phase6 fill:#ffe4e6,stroke:#f43f5e,stroke-width:2px,color:#333
-    classDef phase7 fill:#f3e8ff,stroke:#a855f7,stroke-width:2px,color:#333
-    classDef phase8 fill:#d1fae5,stroke:#10b981,stroke-width:2px,color:#333
+- sentences 含 `# title` → TTS 读出 "hashtag title"
+- hooks 与 sentences 重复 → 前两句被读两遍
+- 字幕默认底部位置 → 抖音 UI 遮挡，用 `--margin-v 550`
 
-    class A phase1; class B phase2; class C phase3; class D phase4
-    class E phase5; class F phase6; class G phase7; class H phase8
-```
+详见 [SKILL.md 反模式表](./SKILL.md#严禁反模式)。
 
-* **Phase 1 – Check + Music** ⚠️ 必做：零成本扫描现有资源，智能判定生成方案；按主题生成背景音乐。
-* **Phase 2 – Script**：Agent 生成完整口播内容 → `format` 命令格式化，输出标准 JSON。
-* **Phase 3 – Visual Prompt**：**核心步骤** — 构建生图 Prompt，决定视频画面质量。
-* **Phase 4 – TTS + Align**：Edge TTS 配音 + 逐词时间戳对齐 → `segments.json`（声音、字幕、画面三同步）。
-* **Phase 5 – Assets**：按 `segments.json` 批量生成图片（每句一张，语义相关），可选片头视频。
-* **Phase 6 – Compose**：FFmpeg 按精确时长合成（不再均分）。
-* **Phase 7 – Post**：FFmpeg SRT 字幕烧录、AIGC 标识。
-* **Phase 8 – Publish**：一键发布至抖音、小红书。
+## 断点续传
 
----
-
-## 🌟 核心特性
-
--   **即插即用 CLI**：通过 `pip install -e .` 安装后，可在任何工作空间直接调用 `clawreel` 命令。
--   **语义对齐流水线**：声音、字幕、画面三者精确同步——图片切换时机由 TTS 逐词时间戳决定，每张图内容由对应语句语义生成。
--   **抗坍缩转场补偿**：自带数学级 xfade 拼接补偿，防止自动转场时导致的视频后段错位与字幕消散。
--   **智能分句防火墙**：上下文敏感断句算法，支持版本号、小数点防拆，完美兼容类似 `GLM5.1` 和 `GPT-4.5` 的科技词汇。
--   **语义分句**：Edge TTS 自带逐词时间戳（~50ms 精度），无需 Whisper 重转录。
--   **策略模式驱动**：分发平台集成完全采用注册字典形式，易于扩展新渠道。
-
----
-
-## 🚀 快速开始
-
-### 一键安装（推荐）
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/hrygo/clawreel/main/install.sh | bash
-```
-
-### 语义对齐流水线
-
-```bash
-# Phase 1: 资源检查 + 背景音乐
-clawreel check --topic "AI未来趋势"
-clawreel music --topic "AI未来趋势" --duration 60
-
-# Phase 2: 格式化口播内容（内容由 SKILL.md/Agent 生成）
-clawreel format --content "你有没有想过，未来会是什么样？| 就在昨天，一个AI震惊了所有人。| 看完你就明白了。"
-
-# Phase 3: Agent 构建生图 Prompt（写入 script JSON 的 image_prompts 字段，无 CLI 命令）
-
-# Phase 4: TTS + 语义对齐 → segments.json
-clawreel align \
-  --text "你有没有想过，未来AI会超越人类？| 就在昨天，一件事震惊了所有人。" \
-  --script assets/script_AI未来趋势_20260408.json \
-  --output assets/segments_AI未来趋势_20260408.json \
-  --split-long
-
-# Phase 5: 按 segments 批量生成图片（每句一张）
-clawreel assets --segments assets/segments_AI未来趋势_20260408.json --max-concurrent 3
-
-# Phase 6: 精确时长合成（含片头视频）
-clawreel compose \
-  --tts assets/tts_output.mp3 \
-  --segments assets/segments_AI未来趋势_20260408.json \
-  --music assets/bg_music.mp3 \
-  --transition fade
-
-# Phase 7: 后期处理（字幕 + AIGC）
-clawreel post --video output/composed.mp4 --title "AI觉醒" --font-size 16
-
-# Phase 8: 多平台发布
-clawreel publish --video output/final.mp4 --title "AI觉醒" --platforms douyin xiaohongshu
-
-# 辅助命令（可选）
-clawreel burn-subs --video output/composed.mp4 --model medium
-```
-
-### AI 模型支持
-
-| 组件 | 模型                 | 说明                                   |
-| ---- | -------------------- | -------------------------------------- |
-| 脚本 | Agent (SKILL.md)     | 负责内容创作，CLI 格式化 `\|` 分隔句子 |
-| 配音 | Edge TTS（免费）     | 逐词时间戳（~50ms），驱动语义对齐      |
-| 图片 | MiniMax image-01     | 9:16 竖屏，每句一张                    |
-| 音乐 | MiniMax music-2.5    | 背景音乐循环扩展                       |
-| 字幕 | Whisper medium/large | 仅 `burn-subs` 场景使用                |
-
----
-
-## 📖 技能集成指南 (For Agents)
-
-如果你是 AI 助理，请务必详细阅读 [**SKILL.md**](./SKILL.md)。
-
-> [!IMPORTANT]
-> **财务责任制**：生成视频、图片和音乐是有成本的。在调用 `assets` 之前，必须先通过 `check` 展示现有资源，并向用户确认支出意愿。
-
----
-
-## 🛠️ 技术栈
-
-*   **Logic**: Python 3.10+, FFmpeg (需含 libass，见[安装说明](#快速开始))
-*   **AI Providers**: MiniMax (Vision/TTS), Microsoft Edge TTS (逐词时间戳), OpenAI Whisper (仅字幕提取)
-*   **Core**: 语义对齐流水线 — 声音、字幕、画面三同步，图片内容由语音语义驱动
-
----
-
-© 2026 ClawReel Team. Built for the Agentic Era.
+用户中断时保留当前产物，检查 `assets/` 已有文件判断进度：
+- 有 `script_*.json` → 从 Phase 3 继续
+- 有 `segments_*.json` → 从 Phase 5 继续
+- 有 `seg_*.jpg` → 从 Phase 6 继续
+- 有 `composed.mp4` → 从 Phase 7 继续
